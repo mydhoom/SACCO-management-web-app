@@ -1,0 +1,17 @@
+extends layout
+
+block content
+
+  h2 New post
+  form(action='/tweet', method="post")
+    .form-group
+      label(for='text') Title:
+      input#email.form-control(type='text', placeholder='Type anything!', name='title')
+    .form-group
+      label(for='text') Description:
+      input#email.form-control(type='text', placeholder='Type anything!', name='desc')
+    .form-group
+      label(for='text') Markdown:
+      input#email.form-control(type='text', placeholder='Type anything!', name='mark')
+   
+    button.btn.btn-primary(type='submit') Post

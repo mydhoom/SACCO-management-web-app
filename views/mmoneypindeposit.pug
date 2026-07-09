@@ -1,0 +1,7 @@
+extends layout
+
+block content
+  form(action="/deposit", method="POST")
+    label Enter mobile money pin
+    input(type="number")
+    input(type="submit" value="deposit")

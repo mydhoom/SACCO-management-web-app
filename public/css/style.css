@@ -1,0 +1,10 @@
+body {
+    font-family: "Helvetica", sans-serif;
+    background-color: chartreuse;
+}
+
+li{
+    list-style: none;
+    line-height: 30px;
+}
+
