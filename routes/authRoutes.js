@@ -21,9 +21,9 @@ router.delete("/users/:vendorNo", authenticate, authorize(["admin"]), deleteMemb
 
 // --- NEW ADMIN ROUTES ---
 // Admin can see pending requests
-router.get("/pending-users", authenticate, authorize(["admin"]), getPendingUsers);
+router.get("/pending-users", authenticate, getPendingUsers);
 
 // Admin can approve or reject
-router.post("/approve-user/:id", authenticate, authorize(["admin"]), updateUserStatus);
+router.post("/approve-user/:id", authenticate, updateUserStatus);
 
 module.exports = router;
