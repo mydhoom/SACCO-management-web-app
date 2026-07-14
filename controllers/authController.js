@@ -1,109 +1,51 @@
-const User = require("../models/User");
-const { generateToken } = require("../utils/jwtUtils");
+const User = require("../models/User"); // Assuming your User model is here
+const bcrypt = require("bcryptjs"); // Or your existing auth library
 
-exports.register = async (req, res) => {
+// --- EXISTING FUNCTIONS (Ensure you keep your existing implementation) ---
+const register = async (req, res) => { /* Your original logic here */ };
+const login = async (req, res) => { /* Your original logic here */ };
+const bulkUpload = async (req, res) => { /* Your original logic here */ };
+const getAllMembers = async (req, res) => { /* Your original logic here */ };
+const deleteMember = async (req, res) => { /* Your original logic here */ };
+
+// --- NEW FUNCTIONS FOR APPROVALS ---
+
+// Fetch all users with 'pending' status
+const getPendingUsers = async (req, res) => {
   try {
-    const { name, vendorNo, password } = req.body;
-
-    // SECURITY: We ignore any "role" or "status" the user tries to send. 
-    // They are forced to be a standard member and locked as "pending".
-    const user = new User({ 
-      name, 
-      vendorNo, 
-      password, 
-      role: "member", 
-      status: "pending" 
-    });
-    
-    await user.save();
-
-    res.status(201).json({ message: "Registration successful! Please wait for Admin approval." });
+    const pendingUsers = await User.find({ status: 'pending' });
+    res.status(200).json(pendingUsers);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(500).json({ message: "Error fetching pending users", error });
   }
 };
 
-exports.login = async (req, res) => {
+// Approve or Reject a user
+const updateUserStatus = async (req, res) => {
   try {
-    const { vendorNo, password } = req.body;
+    const { id } = req.params;
+    const { status } = req.body; // Expecting 'approved' or 'rejected'
 
-    const user = await User.findOne({ vendorNo });
-    
-    if (!user || !(await user.comparePassword(password))) {
-      return res.status(401).json({ error: "Invalid credentials!" });
-    }
+    const user = await User.findByIdAndUpdate(
+      id, 
+      { status: status }, 
+      { new: true }
+    );
 
-    // SECURITY: The Approval Check
-    if (user.status !== "approved") {
-      return res.status(403).json({ error: "Your account is pending admin approval." });
-    }
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-    const token = generateToken({ id: user._id, role: user.role });
-    
-    res.status(200).json({ token, user: { name: user.name, vendorNo: user.vendorNo, role: user.role } });
+    res.status(200).json({ message: `User ${status} successfully` });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ message: "Error updating user status", error });
   }
 };
 
-exports.bulkUpload = async (req, res) => {
-  try {
-    const membersData = req.body; 
-    let addedCount = 0;
-    let updatedCount = 0;
-
-    for (let data of membersData) {
-      // SECURITY: Force all Excel uploads to be approved members
-      data.role = "member";
-      data.status = "approved"; // Automatically unlock Excel users!
-
-      const { password, ...updateData } = data;
-
-      const existingUser = await User.findOne({ vendorNo: data.vendorNo });
-
-      if (existingUser) {
-        await User.updateOne({ vendorNo: data.vendorNo }, { $set: updateData });
-        updatedCount++;
-      } else {
-        data.password = "HPSEBL@123"; 
-        const newUser = new User(data);
-        await newUser.save(); 
-        addedCount++;
-      }
-    }
-
-    res.status(200).json({ 
-      message: "Excel upload processed successfully!", 
-      added: addedCount, 
-      updated: updatedCount 
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-// --- NEW: FETCH ALL MEMBERS ---
-exports.getAllMembers = async (req, res) => {
-  try {
-    // We fetch everyone, but we use .select("-password") for security so passwords never leave the database
-    const users = await User.find({}).select("-password").sort({ createdAt: -1 });
-    res.status(200).json(users);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
-// --- NEW: DELETE A MEMBER ---
-exports.deleteMember = async (req, res) => {
-  try {
-    const { vendorNo } = req.params;
-    const deletedUser = await User.findOneAndDelete({ vendorNo });
-    
-    if (!deletedUser) {
-      return res.status(404).json({ error: "Member not found" });
-    }
-    
-    res.status(200).json({ message: "Member deleted successfully!" });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+module.exports = { 
+  register, 
+  login, 
+  bulkUpload, 
+  getAllMembers, 
+  deleteMember,
+  getPendingUsers,
+  updateUserStatus 
 };

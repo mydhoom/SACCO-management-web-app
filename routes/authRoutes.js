@@ -1,20 +1,29 @@
 const express = require("express");
+const { authenticate, authorize } = require("../middlewares/authMiddleware");
 const { 
   register, 
   login, 
   bulkUpload, 
   getAllMembers, 
-  deleteMember 
+  deleteMember,
+  getPendingUsers,
+  updateUserStatus 
 } = require("../controllers/authController");
 
 const router = express.Router();
 
+// --- EXISTING ROUTES ---
 router.post("/register", register);
 router.post("/login", login);
-router.post("/bulk-upload", bulkUpload); 
+router.post("/bulk-upload", authenticate, authorize(["admin"]), bulkUpload); // Added protection
+router.get("/users", authenticate, getAllMembers);
+router.delete("/users/:vendorNo", authenticate, authorize(["admin"]), deleteMember);
 
-// The new routes for the Directory!
-router.get("/users", getAllMembers);
-router.delete("/users/:vendorNo", deleteMember);
+// --- NEW ADMIN ROUTES ---
+// Admin can see pending requests
+router.get("/pending-users", authenticate, authorize(["admin"]), getPendingUsers);
+
+// Admin can approve or reject
+router.post("/approve-user/:id", authenticate, authorize(["admin"]), updateUserStatus);
 
 module.exports = router;
