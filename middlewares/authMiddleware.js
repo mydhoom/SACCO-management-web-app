@@ -29,7 +29,7 @@ exports.authorize = (permissions) => (req, res, next) => {
   
  // Example Role-Permission Mapping
 const rolePermissions = {
-  admin: ["ADD_MEMBER", "UPDATE_MEMBER", "DELETE_MEMBER", "VIEW_REPORTS"],
-  member: ["VIEW_SAVINGS", "REQUEST_LOAN", "ADD_MEMBER"], // <-- Added ADD_MEMBER here
+  admin: ["admin", "ADD_MEMBER", "UPDATE_MEMBER", "DELETE_MEMBER", "VIEW_REPORTS"],
+  member: ["VIEW_SAVINGS", "REQUEST_LOAN"], 
 };
   
