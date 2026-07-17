@@ -1,18 +1,30 @@
-const Member = require("../models/Member");
+// Updated to use User model
+const User = require("../models/User"); 
 
 exports.addMember = async (req, res) => {
   try {
-    const { firstName, lastName, email, phone } = req.body;
+    // These fields must match exactly what your frontend is sending
+    const { name, vendorNo, designation, phoneNumber, password, status } = req.body;
 
-    const existingMember = await Member.findOne({ email });
-    if (existingMember) {
-      return res.status(400).json({ error: "Member with this email already exists." });
+    // Check if user already exists (you might want to check by vendorNo instead of email)
+    const existingUser = await User.findOne({ vendorNo });
+    if (existingUser) {
+      return res.status(400).json({ error: "Member with this Vendor No. already exists." });
     }
 
-    const member = new Member({ firstName, lastName, email, phone });
-    await member.save();
+    // Create the new user
+    const newUser = new User({ 
+      name, 
+      vendorNo, 
+      designation, 
+      phoneNumber, 
+      password,
+      status: status || 'approved' 
+    });
+    
+    await newUser.save();
 
-    res.status(201).json({ message: "Member added successfully!", member });
+    res.status(201).json({ message: "Member added successfully!", member: newUser });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
