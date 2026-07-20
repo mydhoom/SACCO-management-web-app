@@ -124,3 +124,39 @@ exports.updateLoanStatus = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+exports.applyForLoan = async (req, res) => {
+  try {
+    // 1. Catch the data sent from the React form
+    const { requestedAmount, tenure, purpose, sharePaymentMethod } = req.body;
+
+    // 2. Identify the member applying (Fallback for testing if auth isn't fully wired)
+    const memberId = req.user ? req.user.id : "64a1b2c3d4e5f6g7h8i9j0k1"; 
+
+    // 3. Generate a dynamic official Application ID (e.g., APP-8492)
+    const randomAppNum = Math.floor(1000 + Math.random() * 9000);
+    const loanId = `APP-${randomAppNum}`;
+
+    // 4. Calculate the official End Date (Current date + tenure months)
+    const endDate = new Date();
+    endDate.setMonth(endDate.getMonth() + Number(tenure));
+
+    // 5. Build and save the application
+    const newApplication = new Loan({
+      loanId: loanId,
+      memberId: memberId,
+      loanAmount: requestedAmount,
+      tenure: tenure,
+      purpose: purpose,
+      sharePaymentMethod: sharePaymentMethod,
+      endDate: endDate,
+      status: "PENDING"
+    });
+
+    await newApplication.save();
+
+    res.status(201).json({ message: "Application submitted successfully", loan: newApplication });
+  } catch (error) {
+    console.error("Apply Loan Error:", error);
+    res.status(500).json({ error: "Server error while processing application." });
+  }
+};
