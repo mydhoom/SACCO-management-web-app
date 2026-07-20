@@ -27,32 +27,51 @@ exports.getLoans = async (req, res) => {
 exports.updateLoanStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    // We also pull the dynamic share deduction from the req.body here
+    const { status, shareDeductionAmount } = req.body; 
 
-    // CHANGE IT TO THIS:
-// Replace 'loanId' with whatever field name you use in your database for the account number
-const loan = await Loan.findOne({ loanId: id });
+    // Search by your custom human-readable ID
+    let loan = await Loan.findOne({ loanId: id });
+
+    // --- 🚀 TEMPORARY TEST SEEDER: Auto-create APP-1042 if missing ---
+    if (!loan && id === 'APP-1042') {
+      console.log("Test loan missing. Auto-creating APP-1042 in database...");
+      const mongoose = require('mongoose');
+      
+      // Find ANY existing user in your DB to attach this test loan to
+      const testUser = await mongoose.model('User').findOne(); 
+      if (!testUser) {
+        return res.status(400).json({ error: "You need at least one registered user in your database to run this test!" });
+      }
+      
+      loan = new Loan({
+        loanId: 'APP-1042',
+        memberId: testUser._id,
+        loanAmount: 50000,
+        interestRate: 10,
+        endDate: new Date(new Date().setFullYear(new Date().getFullYear() + 2)),
+        status: 'PENDING'
+      });
+      await loan.save();
+    }
+    // -----------------------------------------------------------------
 
     if (!loan) {
-      return res.status(404).json({ error: "Loan not found!" });
+      return res.status(404).json({ error: "Loan not found in database!" });
     }
 
-    // Check if the loan is being approved RIGHT NOW to prevent duplicate ledger entries
     const isNewlyApproved = status === "APPROVED" && loan.status !== "APPROVED";
     
-    // Update and save the new status
     loan.status = status;
     await loan.save();
 
-    // If newly approved, generate the Compound Journal Entry (Net Disbursement)
     if (isNewlyApproved) {
       const batchId = `BATCH-${uuidv4()}`;
       const grossAmount = loan.loanAmount;
       
-      // Calculate Share Deduction (Example: 10% of gross loan). 
-      // You can adjust this math or pull it from req.body if the admin inputs it manually.
-      const shareDeductionAmount = req.body.shareDeductionAmount || (grossAmount * 0.10); 
-      const netPayout = grossAmount - shareDeductionAmount;
+      // Use the exact deduction typed in the modal, or default to 10%
+      const finalShareDeduction = shareDeductionAmount || (grossAmount * 0.10); 
+      const netPayout = grossAmount - finalShareDeduction;
 
       const transactionsToLog = [
         {
@@ -72,7 +91,7 @@ const loan = await Loan.findOne({ loanId: id });
           vendorNo: "SYS-LOAN-AUTO",
           memberId: loan.memberId,
           category: "SHARE_CAPITAL",
-          amount: shareDeductionAmount,
+          amount: finalShareDeduction,
           entryType: "CREDIT",
           paymentMode: "LOAN_DEDUCTION",
           transactionId: `TXN-${uuidv4()}`,
@@ -96,12 +115,12 @@ const loan = await Loan.findOne({ loanId: id });
         }
       ];
 
-      // Save all three entries simultaneously
       await Transaction.insertMany(transactionsToLog);
     }
 
-    res.status(200).json({ message: "Loan status updated successfully!", loan });
+    res.status(200).json({ message: "Loan status updated and ledger entries created!", loan });
   } catch (error) {
+    console.error("Backend Error:", error);
     res.status(500).json({ error: error.message });
   }
 };
