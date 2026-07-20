@@ -15,7 +15,7 @@ const memberRoutes = require("./routes/memberRoutes");
 const loanRoutes = require("./routes/loanRoutes");
 const savingsRoutes = require("./routes/savingsRoutes");
 const reportRoutes = require("./routes/reportRoutes");
-const transactionRoutes = require("./routes/transactions");)
+const transactionRoutes = require("./routes/transactions");
 
 connectDB();
 const app = express();
