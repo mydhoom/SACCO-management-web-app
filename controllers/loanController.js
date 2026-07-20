@@ -50,7 +50,7 @@ exports.updateLoanStatus = async (req, res) => {
       
       // Calculate Share Deduction (Example: 10% of gross loan). 
       // You can adjust this math or pull it from req.body if the admin inputs it manually.
-      const shareDeductionAmount = grossAmount * 0.10; 
+      const shareDeductionAmount = req.body.shareDeductionAmount || (grossAmount * 0.10); 
       const netPayout = grossAmount - shareDeductionAmount;
 
       const transactionsToLog = [
