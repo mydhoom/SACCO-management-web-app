@@ -29,8 +29,9 @@ exports.updateLoanStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    // Fetch the loan first to check its current status before updating
-    const loan = await Loan.findById(id);
+    // CHANGE IT TO THIS:
+// Replace 'loanId' with whatever field name you use in your database for the account number
+const loan = await Loan.findOne({ loanId: id });
 
     if (!loan) {
       return res.status(404).json({ error: "Loan not found!" });
