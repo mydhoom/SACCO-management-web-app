@@ -6,6 +6,11 @@ const transactionSchema = new mongoose.Schema({
     required: true,
     index: true 
   },
+  // --- Added Ledger Folio Field ---
+  ledgerFolio: {
+    type: String,
+    default: null
+  },
   memberId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User', 
@@ -22,7 +27,16 @@ const transactionSchema = new mongoose.Schema({
       'LOAN_REPAYMENT', 
       'WELFARE_FUND', 
       'PENALTY', 
-      'BANK_PAYOUT'
+      'BANK_PAYOUT',
+      // --- Added Official Accounts from Physical Audit Books ---
+      'RECURRING_DEPOSIT',
+      'DIVIDEND_PAYOUT',
+      'HONORARIUM',
+      'ADMISSION_FEE',
+      'STATIONARY_MISC',
+      'AUDIT_FEE',
+      'RESERVE_FUND',
+      'EDUCATION_FUND'
     ]
   },
   amount: {
