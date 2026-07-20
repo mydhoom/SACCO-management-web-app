@@ -29,6 +29,7 @@
     "nodemon": "^2.0.3",
     "passport": "^0.4.1",
     "passport-local-mongoose": "^6.0.1",
-    "pug": "^2.0.4"
+    "pug": "^2.0.4",
+    "uuid": "^14.0.1"
   }
 }
