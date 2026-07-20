@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 
 const loanSchema = new mongoose.Schema({
-  // 1. Added this field to handle custom human-readable IDs like "APP-1042"
   loanId: { 
     type: String, 
     required: true, 
@@ -18,8 +17,25 @@ const loanSchema = new mongoose.Schema({
   },
   interestRate: { 
     type: Number, 
+    required: true,
+    default: 10 // Assuming a standard 10% interest rate
+  },
+  // --- New Application Fields ---
+  tenure: { 
+    type: Number, 
     required: true 
   },
+  purpose: { 
+    type: String, 
+    required: true 
+  },
+  sharePaymentMethod: { 
+    type: String, 
+    enum: ['DEDUCT_FROM_LOAN', 'UPFRONT_PAYMENT'], 
+    required: true,
+    default: 'DEDUCT_FROM_LOAN'
+  },
+  // ------------------------------
   startDate: { 
     type: Date, 
     default: Date.now 
@@ -28,7 +44,6 @@ const loanSchema = new mongoose.Schema({
     type: Date, 
     required: true 
   },
-  // 2. Changed to uppercase to perfectly match your frontend and controller logic
   status: { 
     type: String, 
     enum: ["PENDING", "APPROVED", "REJECTED", "REPAID"], 
