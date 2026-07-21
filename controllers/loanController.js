@@ -19,13 +19,13 @@ exports.getLoans = async (req, res) => {
   try {
     console.log("Admin requested loan list. Fetching from DB...");
     
-    // Removed .populate() to prevent the 30-second infinite loop crash
-    const loans = await Loan.find(); 
+    // We brought .populate() back to fetch the real names!
+    // I added "name" just in case your User schema uses that instead of firstName
+    const loans = await Loan.find().populate("memberId", "firstName lastName name email"); 
     
     console.log(`Success! Sent ${loans.length} loans to the Admin dashboard.`);
     res.status(200).json(loans);
   } catch (error) {
-    // If it still crashes, this will print the EXACT reason in your terminal
     console.error("CRITICAL ERROR in getLoans:", error); 
     res.status(500).json({ error: error.message });
   }
