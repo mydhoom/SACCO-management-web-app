@@ -25,11 +25,7 @@ const loanSchema = new mongoose.Schema({
     type: Number, 
     required: true 
   },
-  purpose: { 
-    type: String, 
-    required: true 
-  },
-  sharePaymentMethod: { 
+    sharePaymentMethod: { 
     type: String, 
     enum: ['DEDUCT_FROM_LOAN', 'UPFRONT_PAYMENT'], 
     required: true,
