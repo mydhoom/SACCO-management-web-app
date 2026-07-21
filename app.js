@@ -15,7 +15,7 @@ const memberRoutes = require("./routes/memberRoutes");
 const loanRoutes = require("./routes/loanRoutes");
 const savingsRoutes = require("./routes/savingsRoutes");
 const reportRoutes = require("./routes/reportRoutes");
-const transactionRoutes = require("./routes/transactions");
+
 
 connectDB();
 const app = express();
@@ -33,7 +33,7 @@ app.use("/api/members", memberRoutes);
 app.use("/api/loans", loanRoutes);
 app.use("/api/savings", savingsRoutes);
 app.use("/api/reports", reportRoutes);
-app.use("/api/transactions", transactionRoutes); // <--- ADD THIS LINE!
+
 
 // 3. ERROR HANDLING (Must be absolutely last)
 app.use((req, res) => res.status(404).json({ error: "Route not found!" }));
