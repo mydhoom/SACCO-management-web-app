@@ -132,27 +132,33 @@ exports.applyForLoan = async (req, res) => {
     // 1. Catch the data sent from the React form
     const { requestedAmount, tenure, purpose, sharePaymentMethod } = req.body;
 
-    // 2. Identify the member applying (NO MORE FAKE FALLBACKS!)
-    // If the token is missing, the server will intentionally block the request.
+    // 2. Identify the member applying (NO MORE FAKE FALLBACKS)
     if (!req.user) {
       return res.status(401).json({ error: "Unauthorized: User token is missing." });
     }
     
-    // Check for BOTH _id (MongoDB standard) and id (JWT standard) to be absolutely safe
-    const memberId = req.user._id || req.user.id; 
+    // THIS LOG WILL SHOW EXACTLY WHAT YOUR TOKEN HOLDS IN THE TERMINAL
+    console.log("Decoded User Token:", req.user);
 
-    // 3. Generate a dynamic official Application ID (e.g., APP-8492)
+    // 3. The Catch-All: Check for id, _id, or userId
+    const memberId = req.user.id || req.user._id || req.user.userId; 
+
+    if (!memberId) {
+      return res.status(400).json({ error: "Could not extract valid member ID from token." });
+    }
+
+    // 4. Generate a dynamic official Application ID
     const randomAppNum = Math.floor(1000 + Math.random() * 9000);
     const loanId = `APP-${randomAppNum}`;
 
-    // 4. Calculate the official End Date (Current date + tenure months)
+    // 5. Calculate the official End Date
     const endDate = new Date();
     endDate.setMonth(endDate.getMonth() + Number(tenure));
 
-    // 5. Build and save the application
+    // 6. Build and save the application
     const newApplication = new Loan({
       loanId: loanId,
-      memberId: memberId, // Now securely locked to the real logged-in user!
+      memberId: memberId, // Securely locked!
       loanAmount: requestedAmount,
       tenure: tenure,
       purpose: purpose,
