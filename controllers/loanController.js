@@ -17,13 +17,9 @@ exports.requestLoan = async (req, res) => {
 
 exports.getLoans = async (req, res) => {
   try {
-    console.log("Admin requested loan list. Fetching from DB...");
+    // We added "name" and "vendorNo" to the list of fields to pull from the User database
+    const loans = await Loan.find().populate("memberId", "name firstName lastName email vendorNo"); 
     
-    // We brought .populate() back to fetch the real names!
-    // I added "name" just in case your User schema uses that instead of firstName
-    const loans = await Loan.find().populate("memberId", "firstName lastName name email"); 
-    
-    console.log(`Success! Sent ${loans.length} loans to the Admin dashboard.`);
     res.status(200).json(loans);
   } catch (error) {
     console.error("CRITICAL ERROR in getLoans:", error); 
