@@ -33,6 +33,7 @@ app.use("/api/members", memberRoutes);
 app.use("/api/loans", loanRoutes);
 app.use("/api/savings", savingsRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/transactions", transactionRoutes); // <--- ADD THIS LINE!
 
 // 3. ERROR HANDLING (Must be absolutely last)
 app.use((req, res) => res.status(404).json({ error: "Route not found!" }));
