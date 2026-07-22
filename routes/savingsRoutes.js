@@ -15,7 +15,8 @@ const {
   getDivisionSummary,
   getMemberSavingsSummary,
   getRecentTransactions,
-  processDeposit
+  processDeposit,
+  verifyMember
 } = require("../controllers/savingsController");
 
 // If you do not have authorizeAdmin or auditLogger yet, you can remove them from the routes below 
