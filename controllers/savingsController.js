@@ -1,3 +1,4 @@
+const Member = require("../models/Member");
 const Savings = require("../models/Savings");
 const TransactionLog = require("../models/TransactionLog");
 
@@ -146,35 +147,58 @@ exports.getRecentTransactions = async (req, res) => {
  * Process a new Share, Mandatory, or Voluntary deposit
  * (An advanced version of your existing addSavings function)
  */
+/**
+ * Process a new Share, Mandatory, or Voluntary deposit using Vendor No
+ */
 exports.processDeposit = async (req, res) => {
   try {
-    const { memberId, amount, type } = req.body;
+    // We now expect 'vendorNo' from the frontend instead of 'memberId'
+    const { vendorNo, amount, type, action } = req.body;
 
-    if (!memberId || !amount || !type) {
-      return res.status(400).json({ success: false, message: "Please provide memberId, amount, and type" });
+    if (!vendorNo || !amount || !type) {
+      return res.status(400).json({ success: false, message: "Please provide Vendor Number, amount, and type" });
     }
 
-    // 1. Create the generic Savings document (Matching your existing architecture)
+    // 1. Look up the member using their Vendor Number
+    // Adjust 'vendorNo' if your database schema uses a different field name like 'vendorNumber' or 'employeeId'
+    const member = await Member.findOne({ vendorNo: vendorNo });
+    
+    if (!member) {
+      return res.status(404).json({ 
+        success: false, 
+        message: `Transaction failed: No member found with Vendor Number '${vendorNo}'` 
+      });
+    }
+
+    // We found the member! Extract their MongoDB _id to use in the ledgers
+    const memberId = member._id;
+
+    // 2. Create the generic Savings document
     const savings = new Savings({ memberId, amount });
-    // Note: If you add 'type' to your Savings schema, pass it here: new Savings({ memberId, amount, type })
     await savings.save();
 
-    // 2. Create the TransactionLog Record
+    // 3. Create the TransactionLog Record
     const newTransaction = await TransactionLog.create({
       memberId,
-      transactionType: type, // 'Share Capital', 'Mandatory Savings', or 'Voluntary Savings' coming from UI
+      transactionType: type,
       amount,
-      details: { savingsId: savings._id }
+      details: { 
+        savingsId: savings._id,
+        action: action || 'Deposit',
+        paymentMode: req.body.mode || 'Cash',
+        referenceNo: req.body.referenceNo,
+        remarks: req.body.remarks
+      }
     });
 
     res.status(201).json({
       success: true,
-      message: `${type} processed successfully`,
+      message: `${action || type} processed successfully for ${member.firstName || 'Member'} (Vendor: ${vendorNo})`,
       transaction: newTransaction
     });
 
   } catch (error) {
-    console.error("Error processing deposit:", error);
-    res.status(500).json({ success: false, message: "Server error processing deposit" });
+    console.error("Error processing transaction:", error);
+    res.status(500).json({ success: false, message: "Server error processing transaction" });
   }
 };
