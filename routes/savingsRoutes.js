@@ -53,6 +53,12 @@ router.get('/summary/:memberId', authenticate, getMemberSavingsSummary);
 router.get('/transactions', authenticate, authorizeAdmin, getRecentTransactions);
 
 /**
+ * @route   GET /api/savings/verify/:vendorNo
+ * @desc    Verify member exists and get their name
+ */
+router.get('/verify/:vendorNo', authenticate, verifyMember);
+
+/**
  * @route   POST /api/savings/deposit
  * @desc    Process a new Share, Mandatory, or Voluntary deposit with advanced logging
  */
