@@ -202,3 +202,30 @@ exports.processDeposit = async (req, res) => {
     res.status(500).json({ success: false, message: "Server error processing transaction" });
   }
 };
+/**
+ * Verify Member by Vendor No before transaction
+ */
+exports.verifyMember = async (req, res) => {
+  try {
+    const { vendorNo } = req.params;
+    
+    // Search for the member by vendorNo
+    const member = await Member.findOne({ vendorNo: vendorNo });
+    
+    if (!member) {
+      return res.status(404).json({ 
+        success: false, 
+        message: `No member found with Vendor No: ${vendorNo}` 
+      });
+    }
+
+    // Return their full name to the frontend
+    res.status(200).json({ 
+      success: true, 
+      data: { name: `${member.firstName} ${member.lastName}` } 
+    });
+  } catch (error) {
+    console.error("Error verifying member:", error);
+    res.status(500).json({ success: false, message: "Server error verifying member" });
+  }
+};
