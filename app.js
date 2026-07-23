@@ -1,3 +1,11 @@
+let helmet;
+try {
+  helmet = require('helmet');
+  console.log('helmet loaded OK');
+} catch (e) {
+  console.error('Failed to require helmet:', e && e.code, e && e.message);
+}
+
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
