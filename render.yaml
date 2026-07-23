@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: my-backend-api
+    runtime: node     # Change this to python, docker, or go depending on your language
+    buildCommand: npm install && npm run build  # What commands compile your code
+    startCommand: npm start                     # The exact command to turn your server on
