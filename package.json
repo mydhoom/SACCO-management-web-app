@@ -19,6 +19,7 @@
     "express-fileupload": "^1.1.7-alpha.3",
     "express-session": "^1.17.0",
     "express-validator": "^6.4.0",
+    "helmet": "^8.3.0",
     "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^8.5.1",
     "mongodb": "^3.5.5",
