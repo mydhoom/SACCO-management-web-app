@@ -1,17 +1,21 @@
-let helmet;
-try {
-  helmet = require('helmet');
-  console.log('helmet loaded OK');
-} catch (e) {
-  console.error('Failed to require helmet:', e && e.code, e && e.message);
-}
-
+// app.js
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 const morgan = require("morgan");
-const helmet = require("helmet");
 require("dotenv").config();
+
+// Guarded helmet require so missing module doesn't crash the process
+const helmet = (() => {
+  try {
+    const h = require("helmet");
+    console.log("helmet loaded OK");
+    return h;
+  } catch (e) {
+    console.error("Failed to require helmet:", e && e.code, e && e.message);
+    return null;
+  }
+})();
 
 const connectDB = require("./config/db");
 const errorHandler = require("./middlewares/errorHandler");
@@ -24,13 +28,16 @@ const loanRoutes = require("./routes/loanRoutes");
 const savingsRoutes = require("./routes/savingsRoutes");
 const reportRoutes = require("./routes/reportRoutes");
 
-
 connectDB();
 const app = express();
 
 // 1. SECURITY & PARSING (Must be first)
 app.use(cors());
-app.use(helmet());
+if (helmet) {
+  app.use(helmet());
+} else {
+  console.warn("helmet not available — continuing without helmet middleware");
+}
 app.use(morgan("dev"));
 app.use(bodyParser.json());
 app.use("/api", apiLimiter);
@@ -41,7 +48,6 @@ app.use("/api/members", memberRoutes);
 app.use("/api/loans", loanRoutes);
 app.use("/api/savings", savingsRoutes);
 app.use("/api/reports", reportRoutes);
-
 
 // 3. ERROR HANDLING (Must be absolutely last)
 app.use((req, res) => res.status(404).json({ error: "Route not found!" }));
