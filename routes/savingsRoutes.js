@@ -4,9 +4,10 @@ const router = express.Router();
 // ==========================================
 // 1. UNIFIED IMPORTS
 // ==========================================
+// Middleware to protect routes and verify tokens
 const { authenticate } = require("../middlewares/authMiddleware");
 
-// Import everything from the controller at once
+// Import all required controller functions
 const { 
   addSavings, 
   getSavings,
@@ -24,12 +25,14 @@ router.post("/", authenticate, addSavings);
 router.get("/", authenticate, getSavings);
 
 // ==========================================
-// 3. NEW UI ROUTES (Safe Version)
+// 3. NEW UI ROUTES (Transaction Processing)
 // ==========================================
-router.get('/summary', authenticate, getDivisionSummary);
-router.get('/summary/:memberId', authenticate, getMemberSavingsSummary);
-router.get('/transactions', authenticate, getRecentTransactions);
-router.get('/verify/:vendorNo', authenticate, verifyMember);
-router.post('/deposit', authenticate, processDeposit);
+router.get("/summary", authenticate, getDivisionSummary);
+router.get("/summary/:memberId", authenticate, getMemberSavingsSummary);
+router.get("/transactions", authenticate, getRecentTransactions);
+
+// The exact route your React frontend is looking for:
+router.get("/verify/:vendorNo", authenticate, verifyMember);
+router.post("/deposit", authenticate, processDeposit);
 
 module.exports = router;
