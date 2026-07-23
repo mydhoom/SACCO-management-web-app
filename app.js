@@ -1,21 +1,9 @@
-// app.js
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 const morgan = require("morgan");
+const helmet = require("helmet");
 require("dotenv").config();
-
-// Guarded helmet require so missing module doesn't crash the process
-const helmet = (() => {
-  try {
-    const h = require("helmet");
-    console.log("helmet loaded OK");
-    return h;
-  } catch (e) {
-    console.error("Failed to require helmet:", e && e.code, e && e.message);
-    return null;
-  }
-})();
 
 const connectDB = require("./config/db");
 const errorHandler = require("./middlewares/errorHandler");
@@ -33,11 +21,7 @@ const app = express();
 
 // 1. SECURITY & PARSING (Must be first)
 app.use(cors());
-if (helmet) {
-  app.use(helmet());
-} else {
-  console.warn("helmet not available — continuing without helmet middleware");
-}
+app.use(helmet());
 app.use(morgan("dev"));
 app.use(bodyParser.json());
 app.use("/api", apiLimiter);
