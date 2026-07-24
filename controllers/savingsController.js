@@ -1,4 +1,5 @@
 const Member = require("../models/Member");
+const User = require("../models/User")
 const Savings = require("../models/Savings");
 const TransactionLog = require("../models/TransactionLog");
 
@@ -205,25 +206,38 @@ exports.processDeposit = async (req, res) => {
 /**
  * Verify Member by Vendor No before transaction
  */
+/**
+ * Verify Member (or User) by Vendor No before transaction
+ */
 exports.verifyMember = async (req, res) => {
   try {
     const { vendorNo } = req.params;
     
-    // Search for the member by vendorNo
-    const member = await Member.findOne({ vendorNo: vendorNo });
+    // 1. Search for the vendorNo in the Members collection first
+    let person = await Member.findOne({ vendorNo: vendorNo });
     
-    if (!member) {
+    // 2. If not found in Members, check the Users collection (for Admins)
+    if (!person) {
+      person = await User.findOne({ vendorNo: vendorNo });
+    }
+    
+    // 3. If STILL not found, return the 404
+    if (!person) {
       return res.status(404).json({ 
         success: false, 
-        message: `No member found with Vendor No: ${vendorNo}` 
+        message: `No account found with Vendor No: ${vendorNo}` 
       });
     }
 
-    // Return their full name to the frontend
+    // 4. Safely extract the name, handling both database formats
+    const fullName = person.name || `${person.firstName || ''} ${person.lastName || ''}`.trim();
+
+    // 5. Return the successful response
     res.status(200).json({ 
       success: true, 
-      data: { name: `${member.firstName} ${member.lastName}` } 
+      data: { name: fullName } 
     });
+    
   } catch (error) {
     console.error("Error verifying member:", error);
     res.status(500).json({ success: false, message: "Server error verifying member" });
