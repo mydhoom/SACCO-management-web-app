@@ -4,7 +4,8 @@ const {
   requestLoan, 
   getLoans, 
   updateLoanStatus, 
-  applyForLoan // <-- Added this here!
+  applyForLoan, // <-- Added this here!
+  processEMI // <-- 1. Add this to your imports
 } = require("../controllers/loanController");
 
 const router = express.Router();
@@ -12,8 +13,7 @@ const router = express.Router();
 router.post("/", authenticate, authorize(["member", "admin"]), requestLoan);
 router.get("/", authenticate, authorize(["admin"]), getLoans);
 router.put("/:id", authenticate, authorize(["admin"]), updateLoanStatus);
-
-// Route for members to apply for a loan
 router.post("/apply", authenticate, applyForLoan);
+router.post("/process-emi", processEMI);
 
 module.exports = router;
