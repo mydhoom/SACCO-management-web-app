@@ -138,7 +138,7 @@ exports.getRecentTransactions = async (req, res) => {
       vendorNo: trx.memberId?.vendorNo || 'N/A', // Assuming you have vendorNo in your Member schema
       name: trx.memberId ? `${trx.memberId.firstName} ${trx.memberId.lastName}` : 'Unknown',
       amount: trx.amount,
-      type: trx.transactionType || 'Savings', // Using your transactionType field
+      type: trx.category || 'Savings', // Using your transactionType field
       status: 'Credited' // Hardcoded since your DB doesn't seem to track pending/failed status yet
     }));
 
@@ -187,10 +187,11 @@ const memberId = member._id;
 // --- 1. THE TRANSLATOR DICTIONARY ---
     
     // Map Frontend Account Types to Backend Schema 'category' ENUMs
+    // --- 1. THE TRANSLATOR DICTIONARY (Declared only once!) ---
     const categoryMapping = {
       'Monthly Thrift': 'MONTHLY_THRIFT',
       'Recurring Deposit': 'RECURRING_DEPOSIT',
-      'Voluntary Savings': 'MONTHLY_THRIFT', // Maps to standard thrift
+      'Voluntary Savings': 'MONTHLY_THRIFT', 
       'Mandatory Savings': 'MONTHLY_THRIFT', 
       'RD Late Fine / Penalty': 'PENALTY',
       'Loan EMI Payment': 'LOAN_EMI',
@@ -203,7 +204,6 @@ const memberId = member._id;
     };
     const dbCategory = categoryMapping[req.body.type] || 'MONTHLY_THRIFT';
 
-    // Map Frontend Payment Modes to Backend 'paymentMode' ENUMs
     const paymentModeMapping = {
       'Cash': 'CASH',
       'UPI': 'UPI',
@@ -213,53 +213,23 @@ const memberId = member._id;
       'Payroll Deduction': 'INTERNAL_TRANSFER'
     };
     const dbPaymentMode = paymentModeMapping[req.body.mode] || 'CASH';
-
-    // Set Credit/Debit Entry Type
     const dbEntryType = req.body.action === 'Deposit' ? 'CREDIT' : 'DEBIT';
 
-    // 2. Create the generic Savings document
+    // --- 2. CREATE THE SAVINGS DOCUMENT ---
     const savings = new Savings({ memberId, amount });
     await savings.save();
 
-   // --- 1. THE TRANSLATOR DICTIONARY ---
-    const categoryMapping = {
-      'Monthly Thrift': 'MONTHLY_THRIFT',
-      'Recurring Deposit': 'RECURRING_DEPOSIT',
-      'Voluntary Savings': 'MONTHLY_THRIFT', 
-      'Mandatory Savings': 'MONTHLY_THRIFT',
-      'RD Late Fine / Penalty': 'PENALTY',
-      'Loan EMI Payment': 'LOAN_EMI',
-      'Loan Prepayment': 'LOAN_REPAYMENT',
-      'Loan Late Fee / Penalty': 'PENALTY',
-      'Share Capital': 'SHARE_CAPITAL',
-      'Admission Fee': 'ADMISSION_FEE',
-      'Stationary / Misc': 'STATIONARY_MISC',
-      'General Penalty / Fine': 'PENALTY'
-    };
-    const dbCategory = categoryMapping[type] || 'MONTHLY_THRIFT';
-
-    const paymentModeMapping = {
-      'Cash': 'CASH',
-      'UPI': 'UPI',
-      'Cheque': 'CHEQUE',
-      'NEFT/RTGS': 'BANK_TRANSFER',
-      'Bank Transfer': 'BANK_TRANSFER',
-      'Payroll Deduction': 'INTERNAL_TRANSFER'
-    };
-    const dbPaymentMode = paymentModeMapping[req.body.mode] || 'CASH';
-    const dbEntryType = action === 'Deposit' ? 'CREDIT' : 'DEBIT';
-
-    // --- 2. CREATE THE ROBUST RECORD ---
+    // --- 3. CREATE THE ROBUST TRANSACTION LOG RECORD ---
     const newTransaction = await TransactionLog.create({
       vendorNo: req.body.vendorNo,
       ledgerFolio: req.body.ledgerFolio || null,
-      memberId: member._id,
+      memberId: memberId,
       category: dbCategory,
       amount: Math.abs(amount),
       entryType: dbEntryType,
       paymentMode: dbPaymentMode,
       transactionId: `TRX-${Date.now()}`,
-      description: req.body.remarks || `${action || 'Deposit'} - ${type}`,
+      description: req.body.remarks || `${req.body.action || 'Deposit'} - ${req.body.type}`,
       status: 'COMPLETED',
       transactionReference: req.body.referenceNo || null
     });
