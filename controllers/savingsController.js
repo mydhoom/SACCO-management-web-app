@@ -162,17 +162,24 @@ exports.processDeposit = async (req, res) => {
 
     // 1. Look up the member using their Vendor Number
     // Adjust 'vendorNo' if your database schema uses a different field name like 'vendorNumber' or 'employeeId'
-    const member = await Member.findOne({ vendorNo: vendorNo });
-    
-    if (!member) {
-      return res.status(404).json({ 
-        success: false, 
-        message: `Transaction failed: No member found with Vendor Number '${vendorNo}'` 
-      });
-    }
+    // Change 'const' to 'let' so we can update it if the first search fails
+let member = await Member.findOne({ vendorNo: req.body.vendorNo });
 
-    // We found the member! Extract their MongoDB _id to use in the ledgers
-    const memberId = member._id;
+// If not found in Members, check the Users collection (for Admins/Test accounts)
+if (!member) {
+  member = await User.findOne({ vendorNo: req.body.vendorNo });
+}
+
+// If STILL not found, throw the error
+if (!member) {
+  return res.status(404).json({ 
+    success: false, 
+    message: `Transaction failed: No member found with Vendor Number '${req.body.vendorNo}'` 
+  });
+}
+
+// Now the rest of your 44 lines below this will work perfectly without any changes!
+const memberId = member._id;
 
     // 2. Create the generic Savings document
     const savings = new Savings({ memberId, amount });
