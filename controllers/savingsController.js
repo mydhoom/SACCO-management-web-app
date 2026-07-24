@@ -189,8 +189,7 @@ const memberId = member._id;
     // Map Frontend Account Types to Backend Schema 'category' ENUMs
     // --- 1. THE TRANSLATOR DICTIONARY (Declared only once!) ---
     const categoryMapping = {
-      'Monthly Thrift': 'MONTHLY_THRIFT',
-      'Recurring Deposit': 'RECURRING_DEPOSIT',
+      'Monthly Thrift/RD': 'MONTHLY_THRIFT',
       'Voluntary Savings': 'MONTHLY_THRIFT', 
       'Mandatory Savings': 'MONTHLY_THRIFT', 
       'RD Late Fine / Penalty': 'PENALTY',
