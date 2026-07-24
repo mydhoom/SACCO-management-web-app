@@ -229,30 +229,45 @@ exports.verifyMember = async (req, res) => {
       });
     }
 
-    // 4. Calculate available balance dynamically from TransactionLogs
+    // 4. Calculate available balance and active loan dynamically from TransactionLogs
     const transactions = await TransactionLog.find({ vendorNo: vendorNo, status: 'COMPLETED' });
     
     let calculatedBalance = 0;
+    let activeLoanBalance = 0; // NEW: Track loan separately
+    
     transactions.forEach(trx => {
-      if (trx.entryType === 'CREDIT' || trx.action === 'Deposit') {
-        calculatedBalance += Number(trx.amount || 0);
-      } else if (trx.entryType === 'DEBIT' || trx.action === 'Withdrawal') {
-        calculatedBalance -= Math.abs(Number(trx.amount || 0));
+      // If it is a Loan Transaction (Folio 152)
+      if (trx.ledgerFolio === '152') {
+        if (trx.entryType === 'DEBIT') {
+          activeLoanBalance += Number(trx.amount || 0); // Loan disbursed (increases due amount)
+        } else if (trx.entryType === 'CREDIT') {
+          activeLoanBalance -= Number(trx.amount || 0); // EMI Paid (decreases due amount)
+        }
+      } 
+      // If it is a standard Savings/Thrift Transaction
+      else {
+        if (trx.entryType === 'CREDIT' || trx.action === 'Deposit') {
+          calculatedBalance += Number(trx.amount || 0);
+        } else if (trx.entryType === 'DEBIT' || trx.action === 'Withdrawal') {
+          calculatedBalance -= Math.abs(Number(trx.amount || 0));
+        }
       }
     });
 
-    // Fallback to profile balance if no transaction logs are found yet
+    // Fallbacks to profile balances if no transaction logs are found yet
     const finalBalance = calculatedBalance !== 0 ? calculatedBalance : (person.currentShareMoneyTotal || 0);
+    const finalLoanBalance = activeLoanBalance !== 0 ? activeLoanBalance : (person.pendingLoanBalance || 0);
 
     // 5. Safely extract the name, handling both database formats
     const fullName = person.name || `${person.firstName || ''} ${person.lastName || ''}`.trim();
 
-    // 6. Return the successful response including available balance
+    // 6. Return the successful response including both balances
     res.status(200).json({ 
       success: true, 
       data: { 
         name: fullName,
-        availableBalance: finalBalance
+        availableBalance: finalBalance,
+        activeLoanBalance: finalLoanBalance > 0 ? finalLoanBalance : 0 // Prevents negative loan display
       } 
     });
     
@@ -261,4 +276,3 @@ exports.verifyMember = async (req, res) => {
     res.status(500).json({ success: false, message: "Server error verifying member" });
   }
 };
-// Force Git to recognize update
