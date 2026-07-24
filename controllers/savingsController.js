@@ -229,13 +229,31 @@ exports.verifyMember = async (req, res) => {
       });
     }
 
-    // 4. Safely extract the name, handling both database formats
+    // 4. Calculate available balance dynamically from TransactionLogs
+    const transactions = await TransactionLog.find({ vendorNo: vendorNo, status: 'COMPLETED' });
+    
+    let calculatedBalance = 0;
+    transactions.forEach(trx => {
+      if (trx.entryType === 'CREDIT' || trx.action === 'Deposit') {
+        calculatedBalance += Number(trx.amount || 0);
+      } else if (trx.entryType === 'DEBIT' || trx.action === 'Withdrawal') {
+        calculatedBalance -= Math.abs(Number(trx.amount || 0));
+      }
+    });
+
+    // Fallback to profile balance if no transaction logs are found yet
+    const finalBalance = calculatedBalance !== 0 ? calculatedBalance : (person.currentShareMoneyTotal || 0);
+
+    // 5. Safely extract the name, handling both database formats
     const fullName = person.name || `${person.firstName || ''} ${person.lastName || ''}`.trim();
 
-    // 5. Return the successful response
+    // 6. Return the successful response including available balance
     res.status(200).json({ 
       success: true, 
-      data: { name: fullName } 
+      data: { 
+        name: fullName,
+        availableBalance: finalBalance
+      } 
     });
     
   } catch (error) {
