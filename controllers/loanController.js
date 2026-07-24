@@ -1,5 +1,5 @@
 const Loan = require("../models/Loan");
-const Transaction = require("../models/Transaction");
+const TransactionLog = require('../models/TransactionLog');
 const { v4: uuidv4 } = require("uuid");
 
 exports.requestLoan = async (req, res) => {
@@ -118,7 +118,7 @@ exports.updateLoanStatus = async (req, res) => {
         }
       ];
 
-      await Transaction.insertMany(transactionsToLog);
+      await TransactionLog.insertMany(transactionsToLog);
     }
 
     res.status(200).json({ message: "Loan status updated and ledger entries created!", loan });
