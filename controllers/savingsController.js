@@ -229,3 +229,4 @@ exports.verifyMember = async (req, res) => {
     res.status(500).json({ success: false, message: "Server error verifying member" });
   }
 };
+// Force Git to recognize update
