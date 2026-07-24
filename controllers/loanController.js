@@ -78,7 +78,7 @@ exports.updateLoanStatus = async (req, res) => {
 
       const transactionsToLog = [
         {
-          vendorNo: "SYS-LOAN-AUTO", 
+          vendorNo: loan.memberId.vendorNo || "SYS-LOAN-AUTO", // Fallback if populate fails
           memberId: loan.memberId,
           category: "LOAN_DISBURSEMENT",
           amount: grossAmount,
@@ -91,7 +91,7 @@ exports.updateLoanStatus = async (req, res) => {
           batchId: batchId
         },
         {
-          vendorNo: "SYS-LOAN-AUTO",
+          vendorNo: loan.memberId.vendorNo || "SYS-LOAN-AUTO",
           memberId: loan.memberId,
           category: "SHARE_CAPITAL",
           amount: finalShareDeduction,
@@ -104,7 +104,7 @@ exports.updateLoanStatus = async (req, res) => {
           batchId: batchId
         },
         {
-          vendorNo: "SYS-LOAN-AUTO",
+          vendorNo: loan.memberId.vendorNo || "SYS-LOAN-AUTO",
           memberId: loan.memberId,
           category: "BANK_PAYOUT",
           amount: netPayout,
@@ -127,6 +127,7 @@ exports.updateLoanStatus = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
 exports.applyForLoan = async (req, res) => {
   try {
     // 1. Catch the data sent from the React form
@@ -173,5 +174,133 @@ exports.applyForLoan = async (req, res) => {
   } catch (error) {
     console.error("Apply Loan Error:", error);
     res.status(500).json({ error: "Server error while processing application." });
+  }
+};
+
+// ==========================================
+// NEW CONTROLLER: Process Monthly EMI
+// ==========================================
+
+// Flexible Penalty Configuration (Can be moved to a database config later)
+const PENALTY_CONFIG = {
+  applyPenalty: true,       // Toggle to true/false
+  type: 'FLAT',             // 'FLAT' or 'PERCENTAGE'
+  flatAmount: 200,          // Flat penalty amount (e.g., ₹200)
+  percentageRate: 0.02      // 2% of the EMI amount
+};
+
+exports.processEMI = async (req, res) => {
+  try {
+    const { vendorNo, emiAmount, annualInterestRate, isLatePayment } = req.body;
+    const loanFolioNo = '152'; // Standard folio for Loans
+
+    if (!vendorNo || !emiAmount || !annualInterestRate) {
+      return res.status(400).json({ success: false, message: "Missing required EMI fields." });
+    }
+
+    // 1. Calculate Outstanding Principal dynamically from the Master Journal
+    const loanTransactions = await TransactionLog.find({ 
+      vendorNo: vendorNo, 
+      ledgerFolio: loanFolioNo,
+      status: 'COMPLETED' 
+    });
+
+    let outstandingPrincipal = 0;
+    loanTransactions.forEach(trx => {
+      if (trx.entryType === 'DEBIT') {
+        outstandingPrincipal += trx.amount; // Loan disbursement adds to balance
+      } else if (trx.entryType === 'CREDIT' && trx.category === 'LOAN_REPAYMENT') {
+        outstandingPrincipal -= trx.amount; // Principal repayment reduces balance
+      }
+    });
+
+    if (outstandingPrincipal <= 0) {
+      return res.status(400).json({ success: false, message: "No active loan balance found for this member." });
+    }
+
+    // 2. Calculate the Reducing Balance Interest for the current month
+    const monthlyRate = (annualInterestRate / 100) / 12;
+    const interestForMonth = parseFloat((outstandingPrincipal * monthlyRate).toFixed(2));
+
+    // Calculate how much of the EMI goes to Principal vs Interest
+    const principalRepayment = parseFloat((emiAmount - interestForMonth).toFixed(2));
+
+    if (principalRepayment <= 0) {
+       return res.status(400).json({ success: false, message: "EMI amount must be strictly greater than the monthly interest due." });
+    }
+
+    const newTransactions = [];
+    const batchId = `EMI-${uuidv4()}`;
+
+    // 3. Log the Interest Deduction
+    newTransactions.push({
+      vendorNo: vendorNo,
+      ledgerFolio: loanFolioNo,
+      memberId: loanTransactions[0].memberId, // Borrowing memberId from previous logs
+      category: 'LOAN_EMI',
+      amount: interestForMonth,
+      entryType: 'CREDIT', // Crediting the society's interest income
+      paymentMode: 'INTERNAL_TRANSFER',
+      transactionId: `LOAN-INT-${uuidv4()}`,
+      description: 'Monthly Loan Interest on Reducing Balance',
+      status: 'COMPLETED',
+      batchId: batchId
+    });
+
+    // 4. Log the Principal Repayment
+    newTransactions.push({
+      vendorNo: vendorNo,
+      ledgerFolio: loanFolioNo,
+      memberId: loanTransactions[0].memberId,
+      category: 'LOAN_REPAYMENT',
+      amount: principalRepayment,
+      entryType: 'CREDIT', // Crediting the loan account (reduces outstanding)
+      paymentMode: 'CASH', // Could also accept this dynamically from req.body
+      transactionId: `LOAN-PRN-${uuidv4()}`,
+      description: 'Monthly Loan Principal Repayment',
+      status: 'COMPLETED',
+      batchId: batchId
+    });
+
+    // 5. Apply Flexible Penalty if Payment is Late
+    if (isLatePayment && PENALTY_CONFIG.applyPenalty) {
+      const penaltyAmount = PENALTY_CONFIG.type === 'FLAT' 
+        ? PENALTY_CONFIG.flatAmount 
+        : parseFloat((emiAmount * PENALTY_CONFIG.percentageRate).toFixed(2));
+
+      newTransactions.push({
+        vendorNo: vendorNo,
+        ledgerFolio: loanFolioNo,
+        memberId: loanTransactions[0].memberId,
+        category: 'PENALTY',
+        amount: penaltyAmount,
+        entryType: 'CREDIT', 
+        paymentMode: 'CASH',
+        transactionId: `PENALTY-${uuidv4()}`,
+        description: 'Late EMI Payment Penalty',
+        status: 'COMPLETED',
+        batchId: batchId
+      });
+    }
+
+    // 6. Save all transactions to the Master Journal
+    const savedTransactions = await TransactionLog.insertMany(newTransactions);
+
+    res.status(200).json({
+      success: true,
+      message: 'EMI Processed successfully.',
+      data: {
+        totalEmiPaid: emiAmount,
+        interestDeducted: interestForMonth,
+        principalReduced: principalRepayment,
+        newOutstandingBalance: parseFloat((outstandingPrincipal - principalRepayment).toFixed(2)),
+        penaltyApplied: isLatePayment && PENALTY_CONFIG.applyPenalty ? true : false,
+        transactions: savedTransactions.map(t => t.transactionId)
+      }
+    });
+
+  } catch (error) {
+    console.error("Error processing EMI:", error);
+    res.status(500).json({ success: false, message: "Server error processing EMI" });
   }
 };
