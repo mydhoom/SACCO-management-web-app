@@ -15,10 +15,14 @@ exports.addSavings = async (req, res) => {
     await savings.save();
 
     await TransactionLog.create({
-      memberId,
-      transactionType: "savings",
-      amount,
-      details: { savingsId: savings._id },
+      memberId: memberId,
+      vendorNo: req.body.vendorNo || "SYSTEM_ENTRY", // Required by new schema
+      category: "MONTHLY_THRIFT", 
+      amount: amount,
+      entryType: "CREDIT",
+      transactionId: `TRX-${Date.now()}-${Math.floor(Math.random() * 1000)}`, // Unique ID
+      description: "Direct Savings Addition",
+      status: "COMPLETED"
     });
 
     res.status(201).json({ message: "Savings added successfully!", savings });
@@ -180,23 +184,84 @@ if (!member) {
 
 // Now the rest of your 44 lines below this will work perfectly without any changes!
 const memberId = member._id;
+// --- 1. THE TRANSLATOR DICTIONARY ---
+    
+    // Map Frontend Account Types to Backend Schema 'category' ENUMs
+    const categoryMapping = {
+      'Monthly Thrift': 'MONTHLY_THRIFT',
+      'Recurring Deposit': 'RECURRING_DEPOSIT',
+      'Voluntary Savings': 'MONTHLY_THRIFT', // Maps to standard thrift
+      'Mandatory Savings': 'MONTHLY_THRIFT', 
+      'RD Late Fine / Penalty': 'PENALTY',
+      'Loan EMI Payment': 'LOAN_EMI',
+      'Loan Prepayment': 'LOAN_REPAYMENT',
+      'Loan Late Fee / Penalty': 'PENALTY',
+      'Share Capital': 'SHARE_CAPITAL',
+      'Admission Fee': 'ADMISSION_FEE',
+      'Stationary / Misc': 'STATIONARY_MISC',
+      'General Penalty / Fine': 'PENALTY'
+    };
+    const dbCategory = categoryMapping[req.body.type] || 'MONTHLY_THRIFT';
+
+    // Map Frontend Payment Modes to Backend 'paymentMode' ENUMs
+    const paymentModeMapping = {
+      'Cash': 'CASH',
+      'UPI': 'UPI',
+      'Cheque': 'CHEQUE',
+      'NEFT/RTGS': 'BANK_TRANSFER',
+      'Bank Transfer': 'BANK_TRANSFER',
+      'Payroll Deduction': 'INTERNAL_TRANSFER'
+    };
+    const dbPaymentMode = paymentModeMapping[req.body.mode] || 'CASH';
+
+    // Set Credit/Debit Entry Type
+    const dbEntryType = req.body.action === 'Deposit' ? 'CREDIT' : 'DEBIT';
 
     // 2. Create the generic Savings document
     const savings = new Savings({ memberId, amount });
     await savings.save();
 
-    // 3. Create the TransactionLog Record
+   // --- 1. THE TRANSLATOR DICTIONARY ---
+    const categoryMapping = {
+      'Monthly Thrift': 'MONTHLY_THRIFT',
+      'Recurring Deposit': 'RECURRING_DEPOSIT',
+      'Voluntary Savings': 'MONTHLY_THRIFT', 
+      'Mandatory Savings': 'MONTHLY_THRIFT',
+      'RD Late Fine / Penalty': 'PENALTY',
+      'Loan EMI Payment': 'LOAN_EMI',
+      'Loan Prepayment': 'LOAN_REPAYMENT',
+      'Loan Late Fee / Penalty': 'PENALTY',
+      'Share Capital': 'SHARE_CAPITAL',
+      'Admission Fee': 'ADMISSION_FEE',
+      'Stationary / Misc': 'STATIONARY_MISC',
+      'General Penalty / Fine': 'PENALTY'
+    };
+    const dbCategory = categoryMapping[type] || 'MONTHLY_THRIFT';
+
+    const paymentModeMapping = {
+      'Cash': 'CASH',
+      'UPI': 'UPI',
+      'Cheque': 'CHEQUE',
+      'NEFT/RTGS': 'BANK_TRANSFER',
+      'Bank Transfer': 'BANK_TRANSFER',
+      'Payroll Deduction': 'INTERNAL_TRANSFER'
+    };
+    const dbPaymentMode = paymentModeMapping[req.body.mode] || 'CASH';
+    const dbEntryType = action === 'Deposit' ? 'CREDIT' : 'DEBIT';
+
+    // --- 2. CREATE THE ROBUST RECORD ---
     const newTransaction = await TransactionLog.create({
-      memberId,
-      transactionType: type,
-      amount,
-      details: { 
-        savingsId: savings._id,
-        action: action || 'Deposit',
-        paymentMode: req.body.mode || 'Cash',
-        referenceNo: req.body.referenceNo,
-        remarks: req.body.remarks
-      }
+      vendorNo: req.body.vendorNo,
+      ledgerFolio: req.body.ledgerFolio || null,
+      memberId: member._id,
+      category: dbCategory,
+      amount: Math.abs(amount),
+      entryType: dbEntryType,
+      paymentMode: dbPaymentMode,
+      transactionId: `TRX-${Date.now()}`,
+      description: req.body.remarks || `${action || 'Deposit'} - ${type}`,
+      status: 'COMPLETED',
+      transactionReference: req.body.referenceNo || null
     });
 
     res.status(201).json({
