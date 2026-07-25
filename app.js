@@ -16,7 +16,7 @@ const memberRoutes = require("./routes/memberRoutes");
 const loanRoutes = require("./routes/loanRoutes");
 const savingsRoutes = require("./routes/savingsRoutes");
 const reportRoutes = require("./routes/reportRoutes");
-const transactionRoutes = require("./routes/transactionRoutes"); 
+const transactionRoutes = require("./routes/transactions");
 const interestRoutes = require("./routes/interestRoutes");
 const dividendRoutes = require("./routes/dividendRoutes");
 
