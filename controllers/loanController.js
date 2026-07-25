@@ -79,6 +79,7 @@ exports.updateLoanStatus = async (req, res) => {
       const transactionsToLog = [
         {
           vendorNo: loan.memberId.vendorNo || "SYS-LOAN-AUTO", // Fallback if populate fails
+          ledgerFolio: '152', // <-- MAPS TO: Members Loan Account
           memberId: loan.memberId,
           category: "LOAN_DISBURSEMENT",
           amount: grossAmount,
@@ -92,6 +93,7 @@ exports.updateLoanStatus = async (req, res) => {
         },
         {
           vendorNo: loan.memberId.vendorNo || "SYS-LOAN-AUTO",
+          ledgerFolio: '155', // <-- MAPS TO: Member Share Account
           memberId: loan.memberId,
           category: "SHARE_CAPITAL",
           amount: finalShareDeduction,
@@ -105,6 +107,7 @@ exports.updateLoanStatus = async (req, res) => {
         },
         {
           vendorNo: loan.memberId.vendorNo || "SYS-LOAN-AUTO",
+          ledgerFolio: '151', // <-- MAPS TO: S/B Account HPS Co.Op.Bank
           memberId: loan.memberId,
           category: "BANK_PAYOUT",
           amount: netPayout,
@@ -192,7 +195,11 @@ const PENALTY_CONFIG = {
 exports.processEMI = async (req, res) => {
   try {
     const { vendorNo, emiAmount, annualInterestRate, isLatePayment } = req.body;
-    const loanFolioNo = '152'; // Standard folio for Loans
+    
+    // --- OFFICIAL SOCIETY FOLIOS ---
+    const LOAN_PRINCIPAL_FOLIO = '152'; // Members Loan Account
+    const LOAN_INTEREST_FOLIO = '153';  // Interest on members Loan
+    // -------------------------------
 
     if (!vendorNo || !emiAmount || !annualInterestRate) {
       return res.status(400).json({ success: false, message: "Missing required EMI fields." });
@@ -201,7 +208,7 @@ exports.processEMI = async (req, res) => {
     // 1. Calculate Outstanding Principal dynamically from the Master Journal
     const loanTransactions = await TransactionLog.find({ 
       vendorNo: vendorNo, 
-      ledgerFolio: loanFolioNo,
+      ledgerFolio: LOAN_PRINCIPAL_FOLIO, // <-- Mapped to 152
       status: 'COMPLETED' 
     });
 
@@ -235,7 +242,7 @@ exports.processEMI = async (req, res) => {
     // 3. Log the Interest Deduction
     newTransactions.push({
       vendorNo: vendorNo,
-      ledgerFolio: loanFolioNo,
+      ledgerFolio: LOAN_INTEREST_FOLIO, // <-- MAPS TO: 153 (Interest on members Loan)
       memberId: loanTransactions[0].memberId, // Borrowing memberId from previous logs
       category: 'LOAN_EMI',
       amount: interestForMonth,
@@ -250,7 +257,7 @@ exports.processEMI = async (req, res) => {
     // 4. Log the Principal Repayment
     newTransactions.push({
       vendorNo: vendorNo,
-      ledgerFolio: loanFolioNo,
+      ledgerFolio: LOAN_PRINCIPAL_FOLIO, // <-- MAPS TO: 152 (Members Loan Account)
       memberId: loanTransactions[0].memberId,
       category: 'LOAN_REPAYMENT',
       amount: principalRepayment,
@@ -270,7 +277,7 @@ exports.processEMI = async (req, res) => {
 
       newTransactions.push({
         vendorNo: vendorNo,
-        ledgerFolio: loanFolioNo,
+        ledgerFolio: LOAN_PRINCIPAL_FOLIO, // <-- MAPS TO: 152 (Collected as part of loan recovery)
         memberId: loanTransactions[0].memberId,
         category: 'PENALTY',
         amount: penaltyAmount,

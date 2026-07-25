@@ -1,21 +1,24 @@
 const TransactionLog = require('../models/TransactionLog');
 const Member = require('../models/Member');
 
+const rdPrincipalFolio = '154';
+const rdInterestFolio = '158';
+
 /**
  * Calculate Annual Simple Interest (9% p.a. on monthly products) for RD / Monthly Thrift
  * Keeps Ledger Folio strictly aligned with the savings ledger.
  */
 exports.calculateAnnualInterestDraft = async (req, res) => {
   try {
-    const { financialYear, thriftFolioNo } = req.body; // e.g., financialYear = "2025-2026", thriftFolioNo = "151"
+    const { financialYear } = req.body; // e.g., financialYear = "2025-2026"
     
-    if (!financialYear || !thriftFolioNo) {
-      return res.status(400).json({ success: false, message: "Financial Year and Thrift Ledger Folio are required." });
+    if (!financialYear) {
+      return res.status(400).json({ success: false, message: "Financial Year is required." });
     }
 
-    // 1. Fetch all completed thrift/savings transactions grouped by member
+    // 1. Fetch all completed thrift/savings transactions grouped by member using Folio 154
     const transactions = await TransactionLog.find({ 
-      ledgerFolio: thriftFolioNo, 
+      ledgerFolio: rdPrincipalFolio, // <-- FIXED: Now correctly reads from 154
       status: 'COMPLETED' 
     }).sort({ createdAt: 1 });
 
@@ -70,7 +73,7 @@ exports.calculateAnnualInterestDraft = async (req, res) => {
       if (totalInterestEarned > 0) {
         calculatedBatch.push({
           vendorNo: data.vendorNo,
-          ledgerFolio: thriftFolioNo,
+          ledgerFolio: rdInterestFolio, // <-- FIXED: Now correctly posts to 158
           memberId: data.memberId,
           category: 'MONTHLY_THRIFT',
           amount: parseFloat(totalInterestEarned.toFixed(2)),
