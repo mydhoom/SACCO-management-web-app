@@ -18,7 +18,7 @@ const savingsRoutes = require("./routes/savingsRoutes");
 const reportRoutes = require("./routes/reportRoutes");
 const transactionRoutes = require("./routes/transactions");
 const interestRoutes = require("./routes/interestRoutes");
-const dividendRoutes = require("./routes/dividendRoutes");
+//const dividendRoutes = require("./routes/dividendRoutes");
 
 // Initialize Database Connection
 connectDB();
@@ -50,7 +50,7 @@ app.use("/api/savings", savingsRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/transactions", transactionRoutes); 
 app.use("/api/interest", interestRoutes);
-app.use("/api/dividends", dividendRoutes);
+//app.use("/api/dividends", dividendRoutes);
 
 // ==========================================
 // 3. FALLBACK & ERROR HANDLING
