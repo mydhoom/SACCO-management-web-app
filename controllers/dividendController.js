@@ -85,6 +85,7 @@ const calculateDividendDraft = async (req, res) => {
       draftCount: calculatedBatch.length,
       batchId: batchId,
       preview: calculatedBatch.slice(0, 5) // Return sample for admin preview table
+      fullBatch: calculatedBatch
     });
 
   } catch (error) {
