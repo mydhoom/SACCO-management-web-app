@@ -6,7 +6,7 @@ const { v4: uuidv4 } = require("uuid");
  * Applied to total accumulated Share Capital per member.
  * Strictly mapped to The Mahadev Nagar Society's exact Folio Numbers.
  */
-exports.calculateDividendDraft = async (req, res) => {
+const calculateDividendDraft = async (req, res) => {
   try {
     // FIX: Added req.query fallback. React 'fetch' cannot send a body in a GET request.
     const financialYear = req.body.financialYear || req.query.financialYear; 
@@ -96,7 +96,7 @@ exports.calculateDividendDraft = async (req, res) => {
 /**
  * Approve and Post Draft Dividend Batch to the Master Journal Ledger
  */
-exports.approveAndPostDividendBatch = async (req, res) => {
+const approveAndPostDividendBatch = async (req, res) => {
   try {
     const { batchId, transactions } = req.body;
 
@@ -120,3 +120,10 @@ exports.approveAndPostDividendBatch = async (req, res) => {
     res.status(500).json({ success: false, message: "Error posting dividend batch" });
   }
 };
+
+// Keep the original names on exports (in case anything else uses them)
+// AND add the names the routes file imports, so router.get('/draft', draftDividends) resolves.
+exports.calculateDividendDraft = calculateDividendDraft;
+exports.approveAndPostDividendBatch = approveAndPostDividendBatch;
+exports.draftDividends = calculateDividendDraft;
+exports.processDividends = approveAndPostDividendBatch;
