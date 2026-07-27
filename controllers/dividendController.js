@@ -1,5 +1,4 @@
 const TransactionLog = require('../models/TransactionLog');
-const Member = require('../models/Member');
 const { v4: uuidv4 } = require("uuid");
 
 /**
@@ -9,7 +8,9 @@ const { v4: uuidv4 } = require("uuid");
  */
 exports.calculateDividendDraft = async (req, res) => {
   try {
-    const { financialYear, dividendPercentage } = req.body; 
+    // FIX: Added req.query fallback. React 'fetch' cannot send a body in a GET request.
+    const financialYear = req.body.financialYear || req.query.financialYear; 
+    const dividendPercentage = req.body.dividendPercentage || req.query.dividendPercentage; 
     
     if (!financialYear || !dividendPercentage) {
       return res.status(400).json({ success: false, message: "Financial Year and Dividend Percentage are required." });
