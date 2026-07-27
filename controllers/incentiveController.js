@@ -2,26 +2,25 @@ const TransactionLog = require('../models/TransactionLog');
 const { v4: uuidv4 } = require("uuid");
 
 /**
- * Calculate Annual Dividend Draft based on AGM declared percentage
+ * Calculate Annual Incentive Draft (Flat 10%)
  * Applied to total accumulated Share Capital per member.
- * Strictly mapped to The Mahadev Nagar Society's exact Folio Numbers.
+ * Strictly mapped to Folio 155 (Shares) -> Folio 159 (Incentives).
  */
-exports.calculateDividendDraft = async (req, res) => {
+exports.calculateIncentiveDraft = async (req, res) => {
   try {
-    // FIX: Added req.query fallback. React 'fetch' cannot send a body in a GET request.
+    // Fallback for React 'fetch' GET requests
     const financialYear = req.body.financialYear || req.query.financialYear; 
-    const dividendPercentage = req.body.dividendPercentage || req.query.dividendPercentage; 
     
-    if (!financialYear || !dividendPercentage) {
-      return res.status(400).json({ success: false, message: "Financial Year and Dividend Percentage are required." });
+    if (!financialYear) {
+      return res.status(400).json({ success: false, message: "Financial Year is required." });
     }
 
     // --- OFFICIAL SOCIETY FOLIOS ---
     const SHARE_CAPITAL_FOLIO = '155';      // Reading member shares from 155
-    const DIVIDEND_PAYABLE_FOLIO = '158';  // Posting dividend drafts to 158
+    const INCENTIVE_PAYABLE_FOLIO = '159';  // Posting incentive drafts to 159 (Update if needed)
     // -------------------------------
 
-    // 1. Fetch all completed Share Capital transactions from Folio 155
+    // 1. Fetch all completed Share Capital transactions
     const transactions = await TransactionLog.find({ 
       category: 'SHARE_CAPITAL', 
       ledgerFolio: SHARE_CAPITAL_FOLIO,
@@ -44,7 +43,6 @@ exports.calculateDividendDraft = async (req, res) => {
         };
       }
       
-      // Credits mean they bought/were deducted shares. Debits mean shares were withdrawn/refunded.
       if (trx.entryType === 'CREDIT') {
         memberShares[memberId].totalShares += Number(trx.amount);
       } else if (trx.entryType === 'DEBIT') {
@@ -52,27 +50,27 @@ exports.calculateDividendDraft = async (req, res) => {
       }
     });
 
-    // 3. Calculate the dividend payout for each valid member and map to Folio 158
-    const rate = parseFloat(dividendPercentage) / 100;
+    // 3. Calculate the FLAT 10% incentive payout for each valid member
+    const rate = 0.10; // Flat 10% annually
     const calculatedBatch = [];
-    const batchId = `DIV-BATCH-${financialYear}-${uuidv4().split('-')[0]}`; 
+    const batchId = `INC-BATCH-${financialYear}-${uuidv4().split('-')[0]}`; 
 
     for (const memberId in memberShares) {
       const data = memberShares[memberId];
       
       if (data.totalShares > 0) {
-        const dividendAmount = parseFloat((data.totalShares * rate).toFixed(2));
+        const incentiveAmount = parseFloat((data.totalShares * rate).toFixed(2));
 
         calculatedBatch.push({
           vendorNo: data.vendorNo,
-          ledgerFolio: DIVIDEND_PAYABLE_FOLIO, // <-- Crucial: Maps payout to Folio 158
+          ledgerFolio: INCENTIVE_PAYABLE_FOLIO, 
           memberId: data.memberId,
-          category: 'DIVIDEND_PAYOUT', 
-          amount: dividendAmount,
+          category: 'INCENTIVE_PAYOUT', 
+          amount: incentiveAmount,
           entryType: 'CREDIT', 
           paymentMode: 'INTERNAL_TRANSFER', 
-          transactionId: `DIV-${financialYear}-${data.vendorNo}-${Date.now()}`,
-          description: `Annual Share Dividend (${dividendPercentage}%) for FY ${financialYear}`,
+          transactionId: `INC-${financialYear}-${data.vendorNo}-${Date.now()}`,
+          description: `Annual Share Incentive (10% Flat) for FY ${financialYear}`,
           status: 'PENDING', // Held safely in Draft mode
           batchId: batchId
         });
@@ -81,22 +79,22 @@ exports.calculateDividendDraft = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `Dividend calculated successfully for ${calculatedBatch.length} members (Draft Mode).`,
+      message: `Incentive calculated successfully for ${calculatedBatch.length} members (Draft Mode).`,
       draftCount: calculatedBatch.length,
       batchId: batchId,
-      preview: calculatedBatch.slice(0, 5) // Return sample for admin preview table
+      preview: calculatedBatch.slice(0, 5) 
     });
 
   } catch (error) {
-    console.error("Error calculating dividend draft:", error);
-    res.status(500).json({ success: false, message: "Server error calculating dividend" });
+    console.error("Error calculating incentive draft:", error);
+    res.status(500).json({ success: false, message: "Server error calculating incentive" });
   }
 };
 
 /**
- * Approve and Post Draft Dividend Batch to the Master Journal Ledger
+ * Approve and Post Draft Incentive Batch to the Master Journal Ledger
  */
-exports.approveAndPostDividendBatch = async (req, res) => {
+exports.approveAndPostIncentiveBatch = async (req, res) => {
   try {
     const { batchId, transactions } = req.body;
 
@@ -111,12 +109,12 @@ exports.approveAndPostDividendBatch = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `Dividend Batch ${batchId} successfully approved and posted to Folio 158.`,
+      message: `Incentive Batch ${batchId} successfully approved and posted.`,
       postedCount: savedTransactions.length
     });
 
   } catch (error) {
-    console.error("Error posting dividend batch:", error);
-    res.status(500).json({ success: false, message: "Error posting dividend batch" });
+    console.error("Error posting incentive batch:", error);
+    res.status(500).json({ success: false, message: "Error posting incentive batch" });
   }
-};  
+};
