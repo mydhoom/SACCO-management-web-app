@@ -7,7 +7,8 @@ const {
   getAllMembers, 
   deleteMember,
   getPendingUsers,
-  updateUserStatus 
+  updateUserStatus,
+  updateProfile 
 } = require("../controllers/authController");
 
 const router = express.Router();
@@ -15,7 +16,7 @@ const router = express.Router();
 // --- EXISTING ROUTES ---
 router.post("/register", register);
 router.post("/login", login);
-router.post("/bulk-upload", authenticate, authorize(["admin"]), bulkUpload); // Added protection
+router.post("/bulk-upload", authenticate, authorize(["admin"]), bulkUpload);
 router.get("/users", authenticate, getAllMembers);
 router.delete("/users/:vendorNo", authenticate, authorize(["admin"]), deleteMember);
 
@@ -25,5 +26,9 @@ router.get("/pending-users", authenticate, getPendingUsers);
 
 // Admin can approve or reject
 router.post("/approve-user/:id", authenticate, updateUserStatus);
+
+// --- PROFILE ROUTES ---
+// Fixes PUT https://sacco-management-web-app.onrender.com/api/auth/profile/update
+router.put("/profile/update", authenticate, updateProfile);
 
 module.exports = router;

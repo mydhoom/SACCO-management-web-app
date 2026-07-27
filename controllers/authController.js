@@ -58,7 +58,11 @@ const login = async (req, res) => {
     const secret = process.env.JWT_SECRET || 'sacco_super_secret_key';
     const token = jwt.sign({ id: user._id, role: user.role || 'member' }, secret, { expiresIn: '1d' });
     
-    res.status(200).json({ token, user: { name: user.name, vendorNo: user.vendorNo, role: user.role } });
+    // FIX: Send complete user data back (excluding password) so photo and all fields are available
+    const userResponse = user.toObject();
+    delete userResponse.password;
+
+    res.status(200).json({ token, user: userResponse });
   } catch (error) {
     console.error("Login Error:", error);
     res.status(500).json({ error: "Login failed due to a server error." });
@@ -121,7 +125,7 @@ const deleteMember = async (req, res) => {
   }
 };
 
-// --- 5. APPROVAL LOGIC (Your New Features) ---
+// --- 5. APPROVAL LOGIC ---
 const getPendingUsers = async (req, res) => {
   try {
     const pendingUsers = await User.find({ status: 'pending' }).select('-password');
@@ -145,6 +149,32 @@ const updateUserStatus = async (req, res) => {
   }
 };
 
+// --- 6. PROFILE UPDATE LOGIC (FIX FOR 404) ---
+const updateProfile = async (req, res) => {
+  try {
+    // req.user comes from your 'authenticate' middleware
+    const userId = req.user.id || req.user._id;
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: req.body },
+      { new: true, runValidators: true }
+    ).select("-password");
+
+    if (!updatedUser) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    res.status(200).json({
+      message: "Profile updated successfully!",
+      user: updatedUser
+    });
+  } catch (error) {
+    console.error("Update Profile Error:", error);
+    res.status(500).json({ error: "Failed to update profile." });
+  }
+};
+
 // --- EXPORT EVERYTHING ---
 module.exports = { 
   register, 
@@ -153,5 +183,6 @@ module.exports = {
   getAllMembers, 
   deleteMember,
   getPendingUsers,
-  updateUserStatus 
+  updateUserStatus,
+  updateProfile 
 };
