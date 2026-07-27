@@ -4,7 +4,7 @@ const Savings = require("../models/Savings");
 const TransactionLog = require("../models/TransactionLog");
 
 // ==========================================
-// 1. EXISTING CONTROLLERS (Kept Intact)
+// 1. EXISTING CONTROLLERS 
 // ==========================================
 
 exports.addSavings = async (req, res) => {
@@ -16,11 +16,12 @@ exports.addSavings = async (req, res) => {
 
     await TransactionLog.create({
       memberId: memberId,
-      vendorNo: req.body.vendorNo || "SYSTEM_ENTRY", // Required by new schema
+      vendorNo: req.body.vendorNo || "SYSTEM_ENTRY", 
+      ledgerFolio: '154', // <-- FIX: Strictly mapped to Folio 154 (Recurring Deposit Account Members)
       category: "MONTHLY_THRIFT", 
       amount: amount,
       entryType: "CREDIT",
-      transactionId: `TRX-${Date.now()}-${Math.floor(Math.random() * 1000)}`, // Unique ID
+      transactionId: `TRX-${Date.now()}-${Math.floor(Math.random() * 1000)}`, 
       description: "Direct Savings Addition",
       status: "COMPLETED"
     });
@@ -49,9 +50,6 @@ exports.getSavings = async (req, res) => {
  */
 exports.getDivisionSummary = async (req, res) => {
   try {
-    // Note: Since your current Savings schema only has a generic 'amount', 
-    // we are summing it all up here. To split this into Shares, Mandatory, 
-    // and Voluntary in the future, you will need to add a 'type' field to your Savings schema.
     const summary = await Savings.aggregate([
       {
         $group: {
@@ -68,8 +66,7 @@ exports.getDivisionSummary = async (req, res) => {
     const monthlyCollection = await TransactionLog.aggregate([
       { 
         $match: { 
-          createdAt: { $gte: startOfMonth },
-          // Adjust this if you track failed vs successful transactions
+          createdAt: { $gte: startOfMonth }
         } 
       },
       {
@@ -83,8 +80,6 @@ exports.getDivisionSummary = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        // Mapping your generic total to the UI blocks. 
-        // Update these when you modify your DB schema to track exact types.
         shares: summary[0]?.totalAmount || 0, 
         mandatory: 0, 
         voluntary: 0,
@@ -104,9 +99,8 @@ exports.getMemberSavingsSummary = async (req, res) => {
   try {
     const { memberId } = req.params;
     
-    // Summing up all the individual savings documents for this specific member
     const memberTotals = await Savings.aggregate([
-      { $match: { memberId: memberId } }, // Match documents for this member
+      { $match: { memberId: memberId } }, 
       { $group: { _id: "$memberId", totalBalance: { $sum: "$amount" } } }
     ]);
     
@@ -125,21 +119,19 @@ exports.getMemberSavingsSummary = async (req, res) => {
  */
 exports.getRecentTransactions = async (req, res) => {
   try {
-    // Fetch recent transactions using your TransactionLog model
     const transactions = await TransactionLog.find()
-      .populate('memberId', 'firstName lastName email vendorNo') // Pulled from your getSavings logic
+      .populate('memberId', 'firstName lastName email vendorNo') 
       .sort({ createdAt: -1 })
       .limit(50);
 
-    // Format data to match exactly what ShareSavings.jsx expects
     const formattedTransactions = transactions.map(trx => ({
       id: trx._id,
       date: new Date(trx.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      vendorNo: trx.memberId?.vendorNo || 'N/A', // Assuming you have vendorNo in your Member schema
+      vendorNo: trx.memberId?.vendorNo || 'N/A', 
       name: trx.memberId ? `${trx.memberId.firstName} ${trx.memberId.lastName}` : 'Unknown',
       amount: trx.amount,
-      type: trx.category || 'Savings', // Using your transactionType field
-      status: 'Credited' // Hardcoded since your DB doesn't seem to track pending/failed status yet
+      type: trx.category || 'Savings', 
+      status: 'Credited' 
     }));
 
     res.status(200).json({ success: true, data: formattedTransactions });
@@ -149,45 +141,31 @@ exports.getRecentTransactions = async (req, res) => {
 };
 
 /**
- * Process a new Share, Mandatory, or Voluntary deposit
- * (An advanced version of your existing addSavings function)
- */
-/**
  * Process a new Share, Mandatory, or Voluntary deposit using Vendor No
  */
 exports.processDeposit = async (req, res) => {
   try {
-    // We now expect 'vendorNo' from the frontend instead of 'memberId'
     const { vendorNo, amount, type, action } = req.body;
 
     if (!vendorNo || !amount || !type) {
       return res.status(400).json({ success: false, message: "Please provide Vendor Number, amount, and type" });
     }
 
-    // 1. Look up the member using their Vendor Number
-    // Adjust 'vendorNo' if your database schema uses a different field name like 'vendorNumber' or 'employeeId'
-    // Change 'const' to 'let' so we can update it if the first search fails
-let member = await Member.findOne({ vendorNo: req.body.vendorNo });
+    let member = await Member.findOne({ vendorNo: req.body.vendorNo });
+    if (!member) {
+      member = await User.findOne({ vendorNo: req.body.vendorNo });
+    }
 
-// If not found in Members, check the Users collection (for Admins/Test accounts)
-if (!member) {
-  member = await User.findOne({ vendorNo: req.body.vendorNo });
-}
+    if (!member) {
+      return res.status(404).json({ 
+        success: false, 
+        message: `Transaction failed: No member found with Vendor Number '${req.body.vendorNo}'` 
+      });
+    }
 
-// If STILL not found, throw the error
-if (!member) {
-  return res.status(404).json({ 
-    success: false, 
-    message: `Transaction failed: No member found with Vendor Number '${req.body.vendorNo}'` 
-  });
-}
-
-// Now the rest of your 44 lines below this will work perfectly without any changes!
-const memberId = member._id;
-// --- 1. THE TRANSLATOR DICTIONARY ---
+    const memberId = member._id;
     
-    // Map Frontend Account Types to Backend Schema 'category' ENUMs
-    // --- 1. THE TRANSLATOR DICTIONARY (Declared only once!) ---
+    // --- 1. THE TRANSLATOR DICTIONARIES ---
     const categoryMapping = {
       'Monthly Thrift/RD': 'MONTHLY_THRIFT',
       'Voluntary Savings': 'MONTHLY_THRIFT', 
@@ -201,7 +179,24 @@ const memberId = member._id;
       'Stationary / Misc': 'STATIONARY_MISC',
       'General Penalty / Fine': 'PENALTY'
     };
+    
+    // FIX: Hardcoded Folio routing based on the official PDF document
+    const folioMapping = {
+      'Monthly Thrift/RD': '154',      // Recurring Deposit Account Members
+      'Voluntary Savings': '154',      // Recurring Deposit Account Members
+      'Mandatory Savings': '154',      // Recurring Deposit Account Members
+      'RD Late Fine / Penalty': '157', // Mapped to Misc
+      'Loan EMI Payment': '152',       // Members Loan Account
+      'Loan Prepayment': '152',        // Members Loan Account
+      'Loan Late Fee / Penalty': '152',// Excess recovery of loan
+      'Share Capital': '155',          // Member Share Account
+      'Admission Fee': '157',          // Admission fees
+      'Stationary / Misc': '157',      // Stationary/Miscellaneous Account
+      'General Penalty / Fine': '157'  // Mapped to Misc
+    };
+
     const dbCategory = categoryMapping[req.body.type] || 'MONTHLY_THRIFT';
+    const dbFolio = folioMapping[req.body.type] || '157'; 
 
     const paymentModeMapping = {
       'Cash': 'CASH',
@@ -221,7 +216,7 @@ const memberId = member._id;
     // --- 3. CREATE THE ROBUST TRANSACTION LOG RECORD ---
     const newTransaction = await TransactionLog.create({
       vendorNo: req.body.vendorNo,
-      ledgerFolio: req.body.ledgerFolio || null,
+      ledgerFolio: dbFolio, // <-- FIX: Securely locked by the backend
       memberId: memberId,
       category: dbCategory,
       amount: Math.abs(amount),
@@ -244,9 +239,7 @@ const memberId = member._id;
     res.status(500).json({ success: false, message: "Server error processing transaction" });
   }
 };
-/**
- * Verify Member by Vendor No before transaction
- */
+
 /**
  * Verify Member (or User) by Vendor No before transaction
  */
@@ -254,15 +247,12 @@ exports.verifyMember = async (req, res) => {
   try {
     const { vendorNo } = req.params;
     
-    // 1. Search for the vendorNo in the Members collection first
     let person = await Member.findOne({ vendorNo: vendorNo });
     
-    // 2. If not found in Members, check the Users collection (for Admins)
     if (!person) {
       person = await User.findOne({ vendorNo: vendorNo });
     }
     
-    // 3. If STILL not found, return the 404
     if (!person) {
       return res.status(404).json({ 
         success: false, 
@@ -270,22 +260,19 @@ exports.verifyMember = async (req, res) => {
       });
     }
 
-    // 4. Calculate available balance and active loan dynamically from TransactionLogs
     const transactions = await TransactionLog.find({ vendorNo: vendorNo, status: 'COMPLETED' });
     
     let calculatedBalance = 0;
-    let activeLoanBalance = 0; // NEW: Track loan separately
+    let activeLoanBalance = 0; 
     
     transactions.forEach(trx => {
-      // If it is a Loan Transaction (Folio 152)
       if (trx.ledgerFolio === '152') {
         if (trx.entryType === 'DEBIT') {
-          activeLoanBalance += Number(trx.amount || 0); // Loan disbursed (increases due amount)
+          activeLoanBalance += Number(trx.amount || 0); 
         } else if (trx.entryType === 'CREDIT') {
-          activeLoanBalance -= Number(trx.amount || 0); // EMI Paid (decreases due amount)
+          activeLoanBalance -= Number(trx.amount || 0); 
         }
       } 
-      // If it is a standard Savings/Thrift Transaction
       else {
         if (trx.entryType === 'CREDIT' || trx.action === 'Deposit') {
           calculatedBalance += Number(trx.amount || 0);
@@ -295,20 +282,17 @@ exports.verifyMember = async (req, res) => {
       }
     });
 
-    // Fallbacks to profile balances if no transaction logs are found yet
     const finalBalance = calculatedBalance !== 0 ? calculatedBalance : (person.currentShareMoneyTotal || 0);
     const finalLoanBalance = activeLoanBalance !== 0 ? activeLoanBalance : (person.pendingLoanBalance || 0);
 
-    // 5. Safely extract the name, handling both database formats
     const fullName = person.name || `${person.firstName || ''} ${person.lastName || ''}`.trim();
 
-    // 6. Return the successful response including both balances
     res.status(200).json({ 
       success: true, 
       data: { 
         name: fullName,
         availableBalance: finalBalance,
-        activeLoanBalance: finalLoanBalance > 0 ? finalLoanBalance : 0 // Prevents negative loan display
+        activeLoanBalance: finalLoanBalance > 0 ? finalLoanBalance : 0 
       } 
     });
     
