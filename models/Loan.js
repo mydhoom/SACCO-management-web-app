@@ -25,7 +25,7 @@ const loanSchema = new mongoose.Schema({
     type: Number, 
     required: true 
   },
-    sharePaymentMethod: { 
+  sharePaymentMethod: { 
     type: String, 
     enum: ['DEDUCT_FROM_LOAN', 'UPFRONT_PAYMENT'], 
     required: true,
@@ -42,7 +42,7 @@ const loanSchema = new mongoose.Schema({
   },
   status: { 
     type: String, 
-    enum: ["PENDING", "APPROVED", "REJECTED", "REPAID"], 
+    enum: ["PENDING", "APPROVED", "REJECTED", "REPAID", "CLOSED"], // <-- Added CLOSED for full settlements
     default: "PENDING" 
   },
 });
