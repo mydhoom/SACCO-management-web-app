@@ -119,4 +119,4 @@ exports.approveAndPostDividendBatch = async (req, res) => {
     console.error("Error posting dividend batch:", error);
     res.status(500).json({ success: false, message: "Error posting dividend batch" });
   }
-};  
+};

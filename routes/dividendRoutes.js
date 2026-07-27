@@ -1,20 +1,14 @@
 const express = require('express');
 const router = express.Router();
 
-// Import the logic from the controller you already built
+// 1. FIXED: Matching the exact names exported by the controller
 const { 
-    draftDividends, 
-    processDividends 
+    calculateDividendDraft, 
+    approveAndPostDividendBatch 
 } = require('../controllers/dividendController');
 
-// ==========================================
-// MAKER: Generate a Draft Batch for Review
-// ==========================================
-router.get('/draft', draftDividends);
-
-// ==========================================
-// CHECKER: Approve Batch & Post to Ledgers
-// ==========================================
-router.post('/process', processDividends);
+// 2. FIXED: Using the corrected names in the routes
+router.get('/draft', calculateDividendDraft);
+router.post('/process', approveAndPostDividendBatch);
 
 module.exports = router;
