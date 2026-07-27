@@ -7,7 +7,8 @@ const userSchema = new mongoose.Schema({
   name: { type: String, required: true },
   password: { type: String, required: true },
   role: { type: String, enum: ["admin", "member"], default: "member" },
-status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  
   // --- 2. Professional & Departmental Details ---
   designation: { type: String, default: "" },
   jobDescription: { type: String, default: "" }, // e.g., Field / Technical, Official
@@ -22,6 +23,7 @@ status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pen
   permanentAddress: { type: String, default: "" },
 
   // --- 4. Dates & Timelines ---
+  dateOfBirth: { type: Date, default: null }, // <-- ADDED: Date of Birth
   dateOfJoining: { type: Date, default: null },
   dateOfRetirement: { type: Date, default: null },
 
@@ -45,7 +47,7 @@ status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pen
   timestamps: true // Automatically tracks exactly when a profile is created or updated
 });
 
-// --- CRITICAL SECURITY HOOKS (Kept exactly as you wrote them) ---
+// --- CRITICAL SECURITY HOOKS ---
 
 // Securely hash the password before saving it to the database
 userSchema.pre("save", async function (next) {
