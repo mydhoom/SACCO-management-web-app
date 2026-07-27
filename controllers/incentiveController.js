@@ -6,9 +6,9 @@ const { v4: uuidv4 } = require("uuid");
  * Applied to total accumulated Share Capital per member.
  * Strictly mapped to Folio 155 (Shares) -> Folio 159 (Incentives).
  */
-exports.calculateIncentiveDraft = async (req, res) => {
+const calculateIncentiveDraft = async (req, res) => {
   try {
-    // Fallback for React 'fetch' GET requests
+    // FIX: Added req.query fallback. React 'fetch' cannot send a body in a GET request.
     const financialYear = req.body.financialYear || req.query.financialYear; 
     
     if (!financialYear) {
@@ -20,7 +20,7 @@ exports.calculateIncentiveDraft = async (req, res) => {
     const INCENTIVE_PAYABLE_FOLIO = '159';  // Posting incentive drafts to 159 (Update if needed)
     // -------------------------------
 
-    // 1. Fetch all completed Share Capital transactions
+    // 1. Fetch all completed Share Capital transactions from Folio 155
     const transactions = await TransactionLog.find({ 
       category: 'SHARE_CAPITAL', 
       ledgerFolio: SHARE_CAPITAL_FOLIO,
@@ -43,6 +43,7 @@ exports.calculateIncentiveDraft = async (req, res) => {
         };
       }
       
+      // Credits mean they bought/were deducted shares. Debits mean shares were withdrawn/refunded.
       if (trx.entryType === 'CREDIT') {
         memberShares[memberId].totalShares += Number(trx.amount);
       } else if (trx.entryType === 'DEBIT') {
@@ -82,7 +83,7 @@ exports.calculateIncentiveDraft = async (req, res) => {
       message: `Incentive calculated successfully for ${calculatedBatch.length} members (Draft Mode).`,
       draftCount: calculatedBatch.length,
       batchId: batchId,
-      preview: calculatedBatch.slice(0, 5) 
+      preview: calculatedBatch.slice(0, 5) // Return sample for admin preview table
     });
 
   } catch (error) {
@@ -94,7 +95,7 @@ exports.calculateIncentiveDraft = async (req, res) => {
 /**
  * Approve and Post Draft Incentive Batch to the Master Journal Ledger
  */
-exports.approveAndPostIncentiveBatch = async (req, res) => {
+const approveAndPostIncentiveBatch = async (req, res) => {
   try {
     const { batchId, transactions } = req.body;
 
@@ -109,7 +110,7 @@ exports.approveAndPostIncentiveBatch = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `Incentive Batch ${batchId} successfully approved and posted.`,
+      message: `Incentive Batch ${batchId} successfully approved and posted to Folio 159.`,
       postedCount: savedTransactions.length
     });
 
@@ -118,3 +119,11 @@ exports.approveAndPostIncentiveBatch = async (req, res) => {
     res.status(500).json({ success: false, message: "Error posting incentive batch" });
   }
 };
+
+// ==========================================
+// UNIVERSAL EXPORTS (Mismatch Protection)
+// ==========================================
+exports.calculateIncentiveDraft = calculateIncentiveDraft;
+exports.approveAndPostIncentiveBatch = approveAndPostIncentiveBatch;
+exports.draftIncentives = calculateIncentiveDraft;
+exports.processIncentives = approveAndPostIncentiveBatch;
