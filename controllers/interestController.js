@@ -1,16 +1,17 @@
 const TransactionLog = require('../models/TransactionLog');
 const Member = require('../models/Member');
 
-const rdPrincipalFolio = '154';
-const rdInterestFolio = '158';
+const rdPrincipalFolio = '154'; // Recurring Deposit Account Members
+const rdInterestFolio = '158';  // Interest on R.D members
 
 /**
  * Calculate Annual Simple Interest (9% p.a. on monthly products) for RD / Monthly Thrift
  * Keeps Ledger Folio strictly aligned with the savings ledger.
  */
-exports.calculateAnnualInterestDraft = async (req, res) => {
+const calculateAnnualInterestDraft = async (req, res) => {
   try {
-    const { financialYear } = req.body; // e.g., financialYear = "2025-2026"
+    // FIX 1: Added req.query fallback for React GET requests
+    const financialYear = req.body.financialYear || req.query.financialYear; 
     
     if (!financialYear) {
       return res.status(400).json({ success: false, message: "Financial Year is required." });
@@ -18,7 +19,7 @@ exports.calculateAnnualInterestDraft = async (req, res) => {
 
     // 1. Fetch all completed thrift/savings transactions grouped by member using Folio 154
     const transactions = await TransactionLog.find({ 
-      ledgerFolio: rdPrincipalFolio, // <-- FIXED: Now correctly reads from 154
+      ledgerFolio: rdPrincipalFolio, 
       status: 'COMPLETED' 
     }).sort({ createdAt: 1 });
 
@@ -34,12 +35,11 @@ exports.calculateAnnualInterestDraft = async (req, res) => {
         memberLedgers[memberId] = {
           vendorNo: trx.vendorNo,
           memberId: trx.memberId,
-          monthlyBalances: {} // Track balance per month
+          monthlyBalances: {} 
         };
       }
       
-      // Simple accumulation logic per month for the 9% p.a. (0.75% per month) product calculation
-      const monthKey = new Date(trx.createdAt).toISOString().slice(0, 7); // "YYYY-MM"
+      const monthKey = new Date(trx.createdAt).toISOString().slice(0, 7); 
       if (!memberLedgers[memberId].monthlyBalances[monthKey]) {
         memberLedgers[memberId].monthlyBalances[monthKey] = 0;
       }
@@ -52,20 +52,19 @@ exports.calculateAnnualInterestDraft = async (req, res) => {
     });
 
     // 2. Compute 9% simple interest on cumulative monthly products
-    const interestRateMonthly = 0.09 / 12; // 9% per annum converted to monthly rate
+    const interestRateMonthly = 0.09 / 12; 
     const calculatedBatch = [];
+    const batchId = `INT-BATCH-${financialYear}-${Date.now()}`;
 
     for (const memberId in memberLedgers) {
       const data = memberLedgers[memberId];
       let runningCumulativeBalance = 0;
       let totalInterestEarned = 0;
 
-      // Sort months chronologically to build cumulative principal
       const sortedMonths = Object.keys(data.monthlyBalances).sort();
       
       sortedMonths.forEach(month => {
         runningCumulativeBalance += data.monthlyBalances[month];
-        // Calculate monthly product interest
         const monthlyInterest = runningCumulativeBalance * interestRateMonthly;
         totalInterestEarned += monthlyInterest;
       });
@@ -73,7 +72,7 @@ exports.calculateAnnualInterestDraft = async (req, res) => {
       if (totalInterestEarned > 0) {
         calculatedBatch.push({
           vendorNo: data.vendorNo,
-          ledgerFolio: rdInterestFolio, // <-- FIXED: Now correctly posts to 158
+          ledgerFolio: rdInterestFolio, // Posts exactly to 158
           memberId: data.memberId,
           category: 'MONTHLY_THRIFT',
           amount: parseFloat(totalInterestEarned.toFixed(2)),
@@ -81,8 +80,8 @@ exports.calculateAnnualInterestDraft = async (req, res) => {
           paymentMode: 'INTERNAL_TRANSFER',
           transactionId: `INT-${financialYear}-${data.vendorNo}-${Date.now()}`,
           description: `Annual Thrift/RD Interest (9% p.a.) for FY ${financialYear}`,
-          status: 'PENDING', // Held in Draft/Pending status until Admin approval
-          batchId: `BATCH-${financialYear}`
+          status: 'PENDING', 
+          batchId: batchId
         });
       }
     }
@@ -91,7 +90,9 @@ exports.calculateAnnualInterestDraft = async (req, res) => {
       success: true,
       message: `Interest calculated successfully for ${calculatedBatch.length} members (Draft Mode).`,
       draftCount: calculatedBatch.length,
-      preview: calculatedBatch.slice(0, 5) // Return sample preview for admin review
+      batchId: batchId,
+      preview: calculatedBatch.slice(0, 5), 
+      fullBatch: calculatedBatch // FIX 2: Added full batch for the frontend to hold onto!
     });
 
   } catch (error) {
@@ -103,18 +104,35 @@ exports.calculateAnnualInterestDraft = async (req, res) => {
 /**
  * Approve and Post Draft Interest Batch to the Master Journal Ledger
  */
-exports.approveAndPostInterestBatch = async (req, res) => {
+const approveAndPostInterestBatch = async (req, res) => {
   try {
-    const { batchId } = req.body;
+    const { batchId, transactions } = req.body;
 
-    // Find all pending draft records matching this batch ID
-    // and commit them to active transaction logs with folio preservation
+    // FIX 3: Actually saving the transactions instead of an empty stub
+    if (!batchId || !transactions || transactions.length === 0) {
+      return res.status(400).json({ success: false, message: "Batch ID and transaction payload required." });
+    }
+
+    const savedTransactions = await TransactionLog.insertMany(
+      transactions.map(trx => ({ ...trx, status: 'COMPLETED' }))
+    );
+
     res.status(200).json({
       success: true,
-      message: `Batch ${batchId} successfully approved and posted to Master Journal.`
+      message: `Interest Batch ${batchId} successfully approved and posted to Folio 158.`,
+      postedCount: savedTransactions.length
     });
 
   } catch (error) {
+    console.error("Error posting interest batch:", error);
     res.status(500).json({ success: false, message: "Error posting interest batch" });
   }
 };
+
+// ==========================================
+// UNIVERSAL EXPORTS (Mismatch Protection)
+// ==========================================
+exports.calculateAnnualInterestDraft = calculateAnnualInterestDraft;
+exports.approveAndPostInterestBatch = approveAndPostInterestBatch;
+exports.draftInterest = calculateAnnualInterestDraft;
+exports.processInterest = approveAndPostInterestBatch;
