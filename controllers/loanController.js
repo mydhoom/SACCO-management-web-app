@@ -192,11 +192,8 @@ const PENALTY_CONFIG = {
 
 exports.processEMI = async (req, res) => {
   try {
-    // NEW: Accepts paymentMode and audit fields from the frontend
-    const { vendorNo, emiAmount, annualInterestRate, isLatePayment, paymentMode, paymentDate, referenceNumber } = req.body;
-    
-    // NEW: Captures the uploaded image URL from Multer
-    const documentProofUrl = req.file ? req.file.path : null;
+    // Accepts paymentMode, audit fields, and the Cloudinary document URL from the frontend JSON payload
+    const { vendorNo, emiAmount, annualInterestRate, isLatePayment, paymentMode, paymentDate, referenceNumber, documentProofUrl } = req.body;
     
     const LOAN_PRINCIPAL_FOLIO = '152'; 
     const LOAN_INTEREST_FOLIO = '153';  
@@ -246,7 +243,7 @@ exports.processEMI = async (req, res) => {
     const batchId = `EMI-${uuidv4()}`;
     const targetMemberId = loanTransactions[0].memberId;
 
-    // Base transaction layout including the new audit fields
+    // Base transaction layout including audit fields and Cloudinary URL
     const baseTx = {
       vendorNo: vendorNo,
       memberId: targetMemberId,
@@ -254,7 +251,7 @@ exports.processEMI = async (req, res) => {
       batchId: batchId,
       referenceNumber: referenceNumber || null,
       transactionDate: paymentDate ? new Date(paymentDate) : new Date(),
-      documentProofUrl: documentProofUrl
+      documentProofUrl: documentProofUrl || null
     };
 
     newTransactions.push({
