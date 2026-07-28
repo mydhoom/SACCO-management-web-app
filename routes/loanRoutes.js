@@ -4,16 +4,30 @@ const {
   requestLoan, 
   getLoans, 
   updateLoanStatus, 
-  applyForLoan, // <-- Added this here!
-  processEMI // <-- 1. Add this to your imports
+  applyForLoan, 
+  processEMI,
+  getPendingTransactions,
+  approvePendingTransaction,
+  getMyLoanStatement
 } = require("../controllers/loanController");
 
 const router = express.Router();
 
+// --- EXISTING ROUTES ---
 router.post("/", authenticate, authorize(["member", "admin"]), requestLoan);
 router.get("/", authenticate, authorize(["admin"]), getLoans);
 router.put("/:id", authenticate, authorize(["admin"]), updateLoanStatus);
 router.post("/apply", authenticate, applyForLoan);
 router.post("/process-emi", processEMI);
+
+// --- NEW DASHBOARD ROUTES ---
+// 1. Admin Clearance Dashboard: Fetch all pending cheques
+router.get("/pending-transactions", authenticate, authorize(["admin"]), getPendingTransactions);
+
+// 2. Admin Clearance Dashboard: Approve a specific transaction
+router.put("/approve-transaction/:transactionId", authenticate, authorize(["admin"]), approvePendingTransaction);
+
+// 3. Member Dashboard: Fetch only their own personal loan statement
+router.get("/my-statement", authenticate, getMyLoanStatement);
 
 module.exports = router;

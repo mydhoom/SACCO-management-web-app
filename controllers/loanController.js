@@ -327,3 +327,87 @@ exports.processEMI = async (req, res) => {
     res.status(500).json({ success: false, message: "Server error processing EMI" });
   }
 };
+// ==========================================
+// NEW DASHBOARD CONTROLLERS (Add to bottom)
+// ==========================================
+
+// Fetch all pending transactions for Admin Clearance Dashboard
+exports.getPendingTransactions = async (req, res) => {
+  try {
+    const pendingTxns = await TransactionLog.find({ status: 'PENDING_VERIFICATION', entryType: 'CREDIT', category: 'LOAN_REPAYMENT' })
+      .populate('memberId', 'name vendorNo')
+      .sort({ transactionDate: -1 });
+    
+    res.status(200).json({ success: true, data: pendingTxns });
+  } catch (error) {
+    console.error("Error fetching pending transactions:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch pending transactions." });
+  }
+};
+
+// Approve a pending Cheque/Cash transaction and auto-close loan if balance hits 0
+exports.approvePendingTransaction = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    
+    const transaction = await TransactionLog.findOne({ transactionId });
+    if (!transaction) return res.status(404).json({ success: false, message: "Transaction not found." });
+    if (transaction.status === 'COMPLETED') return res.status(400).json({ success: false, message: "Transaction is already cleared." });
+
+    // 1. Mark the main principal repayment transaction as COMPLETED
+    transaction.status = 'COMPLETED';
+    await transaction.save();
+
+    // 2. Also approve any associated Interest or Penalty transactions from the exact same EMI batch
+    await TransactionLog.updateMany(
+      { batchId: transaction.batchId, status: 'PENDING_VERIFICATION' },
+      { $set: { status: 'COMPLETED' } }
+    );
+
+    // 3. Re-calculate outstanding balance to see if this cleared cheque closes the loan
+    const loanTransactions = await TransactionLog.find({ 
+      vendorNo: transaction.vendorNo, 
+      ledgerFolio: '152', 
+      status: 'COMPLETED' 
+    });
+
+    let outstandingPrincipal = 0;
+    loanTransactions.forEach(trx => {
+      if (trx.entryType === 'DEBIT') outstandingPrincipal += trx.amount; 
+      else if (trx.entryType === 'CREDIT' && trx.category === 'LOAN_REPAYMENT') outstandingPrincipal -= trx.amount; 
+    });
+
+    let loanClosed = false;
+    if (outstandingPrincipal <= 0) {
+      await Loan.findOneAndUpdate(
+        { memberId: transaction.memberId, status: { $in: ['APPROVED', 'PENDING'] } }, 
+        { status: 'CLOSED' }
+      );
+      loanClosed = true;
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      message: "Cheque cleared and ledger officially updated.",
+      loanClosed: loanClosed
+    });
+  } catch (error) {
+    console.error("Error approving transaction:", error);
+    res.status(500).json({ success: false, message: "Server error during approval." });
+  }
+};
+
+// Fetch loan data strictly for the logged-in member
+exports.getMyLoanStatement = async (req, res) => {
+  try {
+    const memberId = req.user.id || req.user._id || req.user.userId;
+    const loans = await Loan.find({ memberId: memberId, status: { $in: ['APPROVED', 'ACTIVE', 'CLOSED'] } });
+    
+    // In a full production app, you would dynamically calculate the schedule here 
+    // from the TransactionLog, similar to how we calculate the reducing balance.
+    res.status(200).json({ success: true, data: loans });
+  } catch (error) {
+    console.error("Error fetching member loan:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch your loan statement." });
+  }
+};
