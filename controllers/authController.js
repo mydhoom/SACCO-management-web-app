@@ -2,6 +2,10 @@ const User = require("../models/User");
 const bcrypt = require("bcryptjs"); 
 const jwt = require("jsonwebtoken"); // Required for creating the adminToken
 
+// --- NEW IMPORTS REQUIRED FOR DATABASE PURGE ---
+const Loan = require("../models/Loan");
+const TransactionLog = require("../models/TransactionLog");
+
 // --- 1. REGISTRATION LOGIC ---
 const register = async (req, res) => {
   try {
@@ -175,6 +179,65 @@ const updateProfile = async (req, res) => {
   }
 };
 
+// --- 7. DATABASE PURGE LOGIC ---
+const purgeDatabase = async (req, res) => {
+  try {
+    const { collections, dateCondition, targetDate, adminPassword } = req.body;
+    
+    // 1. Double Authentication: Verify the Admin's password
+    // (Assuming req.user is populated by your JWT middleware)
+    const adminUser = await User.findById(req.user.id || req.user._id);
+    if (!adminUser) return res.status(404).json({ success: false, message: "Admin not found." });
+
+    const isMatch = await bcrypt.compare(adminPassword, adminUser.password);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, message: "Authentication failed. Incorrect password." });
+    }
+
+    // 2. Construct Date Query
+    let dateQuery = {};
+    if (dateCondition !== 'ALL' && targetDate) {
+      const targetDateObj = new Date(targetDate);
+      const operator = dateCondition === 'AFTER' ? '$gte' : '$lt';
+      dateQuery = { [operator]: targetDateObj };
+    }
+
+    const results = {};
+
+    // 3. Execute Deletions based on selected collections
+    if (collections.includes('TRANSACTIONS')) {
+      const q = dateCondition === 'ALL' ? {} : { transactionDate: dateQuery };
+      const del = await TransactionLog.deleteMany(q);
+      results.transactionsDeleted = del.deletedCount;
+    }
+
+    if (collections.includes('LOANS')) {
+      const q = dateCondition === 'ALL' ? {} : { createdAt: dateQuery };
+      const del = await Loan.deleteMany(q);
+      results.loansDeleted = del.deletedCount;
+    }
+
+    if (collections.includes('USERS')) {
+      // Never delete the Admin, even if they select ALL
+      const q = dateCondition === 'ALL' 
+        ? { role: { $ne: 'admin' } } 
+        : { role: { $ne: 'admin' }, createdAt: dateQuery };
+      const del = await User.deleteMany(q);
+      results.usersDeleted = del.deletedCount;
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      message: "Data purge completed successfully.", 
+      details: results 
+    });
+
+  } catch (error) {
+    console.error("Purge Error:", error);
+    res.status(500).json({ success: false, message: "Server error during data purge." });
+  }
+};
+
 // --- EXPORT EVERYTHING ---
 module.exports = { 
   register, 
@@ -184,5 +247,6 @@ module.exports = {
   deleteMember,
   getPendingUsers,
   updateUserStatus,
-  updateProfile 
+  updateProfile,
+  purgeDatabase 
 };
