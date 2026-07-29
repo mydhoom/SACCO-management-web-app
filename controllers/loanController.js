@@ -78,9 +78,16 @@ exports.updateLoanStatus = async (req, res) => {
       const finalShareDeduction = shareDeductionAmount || (grossAmount * 0.10); 
       const netPayout = grossAmount - finalShareDeduction;
 
+      // --- NEW: Fetch exact user details to ensure Journal holds actual names and IDs ---
+      const fetchedUser = await User.findById(loan.memberId);
+      const exactVendorNo = fetchedUser && fetchedUser.vendorNo ? fetchedUser.vendorNo : "SYS-LOAN-AUTO";
+      const exactMemberName = fetchedUser ? (fetchedUser.name || `${fetchedUser.firstName || ''} ${fetchedUser.lastName || ''}`.trim() || 'Unknown Member') : "System Auto";
+      // --------------------------------------------------------------------------------
+
       const transactionsToLog = [
         {
-          vendorNo: loan.memberId.vendorNo || "SYS-LOAN-AUTO",
+          vendorNo: exactVendorNo,
+          memberName: exactMemberName, // Pushes Member Name to Ledger
           ledgerFolio: '152',
           memberId: loan.memberId,
           category: "LOAN_DISBURSEMENT",
@@ -94,7 +101,8 @@ exports.updateLoanStatus = async (req, res) => {
           batchId: batchId
         },
         {
-          vendorNo: loan.memberId.vendorNo || "SYS-LOAN-AUTO",
+          vendorNo: exactVendorNo,
+          memberName: exactMemberName, // Pushes Member Name to Ledger
           ledgerFolio: '155',
           memberId: loan.memberId,
           category: "SHARE_CAPITAL",
@@ -108,7 +116,8 @@ exports.updateLoanStatus = async (req, res) => {
           batchId: batchId
         },
         {
-          vendorNo: loan.memberId.vendorNo || "SYS-LOAN-AUTO",
+          vendorNo: exactVendorNo,
+          memberName: exactMemberName, // Pushes Member Name to Ledger
           ledgerFolio: '151',
           memberId: loan.memberId,
           category: "BANK_PAYOUT",
@@ -243,9 +252,15 @@ exports.processEMI = async (req, res) => {
     const batchId = `EMI-${uuidv4()}`;
     const targetMemberId = loanTransactions[0].memberId;
 
-    // Base transaction layout including audit fields and Cloudinary URL
+    // --- NEW: Fetch exact user details for EMI processing too ---
+    const fetchedUserEmi = await User.findById(targetMemberId);
+    const exactMemberNameEmi = fetchedUserEmi ? (fetchedUserEmi.name || `${fetchedUserEmi.firstName || ''} ${fetchedUserEmi.lastName || ''}`.trim() || 'Unknown Member') : "-";
+    // -----------------------------------------------------------
+
+    // Base transaction layout including audit fields, Cloudinary URL, and Member Name
     const baseTx = {
       vendorNo: vendorNo,
+      memberName: exactMemberNameEmi, // Pushes Member Name to Ledger
       memberId: targetMemberId,
       status: txStatus,
       batchId: batchId,
