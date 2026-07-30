@@ -88,7 +88,7 @@ exports.updateLoanStatus = async (req, res) => {
         {
           vendorNo: exactVendorNo,
           memberName: exactMemberName, 
-          folio: '152', // LedgerService uses 'folio' instead of 'ledgerFolio'
+          ledgerFolio: '152', // LedgerService uses 'folio' instead of 'ledgerFolio'
           memberId: loan.memberId,
           category: "LOAN_DISBURSEMENT",
           amount: grossAmount,
@@ -102,7 +102,7 @@ exports.updateLoanStatus = async (req, res) => {
         {
           vendorNo: exactVendorNo,
           memberName: exactMemberName, 
-          folio: '155',
+          ledgerFolio: '155',
           memberId: loan.memberId,
           category: "SHARE_CAPITAL",
           amount: finalShareDeduction,
@@ -116,7 +116,7 @@ exports.updateLoanStatus = async (req, res) => {
         {
           vendorNo: exactVendorNo,
           memberName: exactMemberName, 
-          folio: '151', 
+          ledgerFolio: '151', 
           memberId: loan.memberId,
           category: "BANK_PAYOUT",
           amount: netPayout,
@@ -275,7 +275,7 @@ exports.processEMI = async (req, res) => {
     // --- NEW: THE MISSING DEBIT ENTRY ---
     newTransactions.push({
       ...baseTx,
-      folio: BANK_RECEIPT_FOLIO,
+      ledgerFolio: BANK_RECEIPT_FOLIO,
       category: 'BANK_RECEIPT',
       amount: totalDebitAmount,
       entryType: 'DEBIT',
@@ -286,7 +286,7 @@ exports.processEMI = async (req, res) => {
     // --- THE CREDIT ENTRIES ---
     newTransactions.push({
       ...baseTx,
-      folio: LOAN_INTEREST_FOLIO, 
+      ledgerFolio: LOAN_INTEREST_FOLIO, 
       category: 'LOAN_EMI',
       amount: interestForMonth,
       entryType: 'CREDIT', 
@@ -297,7 +297,7 @@ exports.processEMI = async (req, res) => {
     if (principalRepayment > 0) {
       newTransactions.push({
         ...baseTx,
-        folio: LOAN_PRINCIPAL_FOLIO, 
+        ledgerFolio: LOAN_PRINCIPAL_FOLIO, 
         category: 'LOAN_REPAYMENT',
         amount: principalRepayment,
         entryType: 'CREDIT', 
@@ -309,7 +309,7 @@ exports.processEMI = async (req, res) => {
     if (penaltyAmount > 0) {
       newTransactions.push({
         ...baseTx,
-        folio: LOAN_PRINCIPAL_FOLIO, // Keeping your original Folio mapping
+        ledgerFolio: LOAN_PRINCIPAL_FOLIO, // Keeping your original Folio mapping
         category: 'PENALTY',
         amount: penaltyAmount,
         entryType: 'CREDIT', 
