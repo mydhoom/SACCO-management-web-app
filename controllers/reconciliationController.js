@@ -96,7 +96,7 @@ async function runAIEngine(rawText) {
   `;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-3.6-flash', // Fast and cheap for text processing
+    model: 'gemini-1.5-flash', // Fast and cheap for text processing
     contents: prompt,
   });
 
