@@ -3,6 +3,7 @@ const pdfParse = require('pdf-parse');
 const { GoogleGenAI } = require('@google/genai');
 const TransactionLog = require('../models/TransactionLog');
 const User = require('../models/User');
+const LedgerService = require('../services/LedgerService'); // Ensure Enforcer is imported at the top
 
 // Initialize Gemini API (Ensure GEMINI_API_KEY is in your .env file)
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -182,3 +183,75 @@ async function runStandardEngine(excelData) {
 
   return { matched, suspense };
 }
+// ==========================================
+// 3. THE APPROVAL ENGINE (Finalizing the Ledger)
+// ==========================================
+exports.approveReconciliation = async (req, res) => {
+  try {
+    // These arrays come from your React frontend after the admin reviews the parser's output
+    const { matchedTransactions, suspenseDeposits } = req.body;
+
+    // 1. CLEAR MATCHED TRANSACTIONS
+    if (matchedTransactions && matchedTransactions.length > 0) {
+      // Find all pending transactions that the algorithm matched and clear them
+      await TransactionLog.updateMany(
+        { transactionId: { $in: matchedTransactions }, status: 'PENDING_VERIFICATION' },
+        { $set: { status: 'COMPLETED' } }
+      );
+    }
+
+    // 2. ROUTE UNKNOWN FUNDS TO SUSPENSE (Folio 999)
+    if (suspenseDeposits && suspenseDeposits.length > 0) {
+      
+      // Fetch the first Admin/System user to act as the placeholder for unknown funds
+      // Alternatively, you can create a dedicated "Suspense Account" user in your DB
+      const systemUser = await User.findOne({ role: 'ADMIN' }) || await User.findOne();
+
+      for (const item of suspenseDeposits) {
+        const suspenseEntries = [
+          // DEBIT: The money hitting the bank
+          {
+            vendorNo: 'SYS-SUSPENSE', 
+            memberName: 'Unidentified Bank Deposit',
+            memberId: systemUser._id, // Schema requires an ObjectId
+            ledgerFolio: '101',
+            category: 'BANK_RECEIPT',
+            amount: item.amount,
+            entryType: 'DEBIT',
+            paymentMode: 'BANK_TRANSFER',
+            transactionDate: item.bankDate ? new Date(item.bankDate) : new Date(),
+            transactionId: `BANK-IN-SUSP-${Date.now()}-${Math.floor(Math.random()*1000)}`
+          },
+          // CREDIT: Parking the money in Liability (Folio 999)
+          {
+            vendorNo: 'SYS-SUSPENSE',
+            memberName: 'Unidentified Bank Deposit',
+            memberId: systemUser._id,
+            ledgerFolio: '999',
+            category: 'SUSPENSE_CLEARING',
+            amount: item.amount,
+            entryType: 'CREDIT',
+            paymentMode: 'INTERNAL_TRANSFER',
+            transactionDate: item.bankDate ? new Date(item.bankDate) : new Date(),
+            transactionId: `SUSP-CR-${Date.now()}-${Math.floor(Math.random()*1000)}`
+          }
+        ];
+
+        // Push through the Enforcer to guarantee Balance Sheet integrity
+        await LedgerService.executeDoubleEntry(
+          suspenseEntries, 
+          `Unreconciled Bank Deposit: ${item.bankDescription || 'Unknown AI Text'} - Ref: ${item.referenceNumber || 'N/A'}`
+        );
+      }
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      message: "Reconciliation approved. Matched items cleared and unknowns routed to Suspense." 
+    });
+
+  } catch (error) {
+    console.error("Approval Error:", error);
+    res.status(500).json({ success: false, message: error.message || "Server error during reconciliation approval." });
+  }
+};
