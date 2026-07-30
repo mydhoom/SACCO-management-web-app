@@ -6,19 +6,24 @@ const transactionLogSchema = new mongoose.Schema({
     required: true,
     index: true 
   },
+  memberName: {  // NEW: Added to support dashboard name rendering
+    type: String,
+    default: null
+  },
   ledgerFolio: {
     type: String,
     default: null
   },
   memberId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Member', // Updated to match your system
+    ref: 'Member', 
     required: true
   },
   category: {
     type: String,
     required: true,
     enum: [
+      // Original Categories
       'SHARE_CAPITAL', 
       'MONTHLY_THRIFT', 
       'LOAN_DISBURSEMENT', 
@@ -34,7 +39,15 @@ const transactionLogSchema = new mongoose.Schema({
       'STATIONARY_MISC',
       'AUDIT_FEE',
       'RESERVE_FUND',
-      'EDUCATION_FUND'
+      'EDUCATION_FUND',
+      // NEW: Double-Entry & Suspense Categories
+      'BANK_RECEIPT',
+      'INTEREST_INCOME',
+      'LOAN_ASSET',
+      'RD_LIABILITY',
+      'RD_DEPOSIT',
+      'RD_WITHDRAWAL',
+      'SUSPENSE_CLEARING'
     ]
   },
   amount: {
@@ -76,7 +89,7 @@ const transactionLogSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['PENDING', 'COMPLETED', 'FAILED'],
+    enum: ['PENDING', 'PENDING_VERIFICATION', 'COMPLETED', 'FAILED'], // NEW: Added PENDING_VERIFICATION
     default: 'COMPLETED'
   },
   relatedLoanId: {

@@ -1,6 +1,7 @@
 const Loan = require("../models/Loan");
 const TransactionLog = require('../models/TransactionLog');
 const User = require('../models/User'); 
+const LedgerService = require('../services/LedgerService'); // NEW: Import the Enforcer
 const { v4: uuidv4 } = require("uuid");
 
 exports.requestLoan = async (req, res) => {
@@ -78,61 +79,58 @@ exports.updateLoanStatus = async (req, res) => {
       const finalShareDeduction = shareDeductionAmount || (grossAmount * 0.10); 
       const netPayout = grossAmount - finalShareDeduction;
 
-      // --- NEW: Fetch exact user details to ensure Journal holds actual names and IDs ---
       const fetchedUser = await User.findById(loan.memberId);
       const exactVendorNo = fetchedUser && fetchedUser.vendorNo ? fetchedUser.vendorNo : "SYS-LOAN-AUTO";
       const exactMemberName = fetchedUser ? (fetchedUser.name || `${fetchedUser.firstName || ''} ${fetchedUser.lastName || ''}`.trim() || 'Unknown Member') : "System Auto";
-      // --------------------------------------------------------------------------------
 
+      // Array prepared for the LedgerService
       const transactionsToLog = [
         {
           vendorNo: exactVendorNo,
-          memberName: exactMemberName, // Pushes Member Name to Ledger
-          ledgerFolio: '152',
+          memberName: exactMemberName, 
+          folio: '152', // LedgerService uses 'folio' instead of 'ledgerFolio'
           memberId: loan.memberId,
           category: "LOAN_DISBURSEMENT",
           amount: grossAmount,
           entryType: "DEBIT",
           paymentMode: "INTERNAL_TRANSFER",
           transactionId: `TXN-${uuidv4()}`,
-          description: "Gross Loan Amount Approved",
           status: "COMPLETED",
           relatedLoanId: loan._id,
           batchId: batchId
         },
         {
           vendorNo: exactVendorNo,
-          memberName: exactMemberName, // Pushes Member Name to Ledger
-          ledgerFolio: '155',
+          memberName: exactMemberName, 
+          folio: '155',
           memberId: loan.memberId,
           category: "SHARE_CAPITAL",
           amount: finalShareDeduction,
           entryType: "CREDIT",
           paymentMode: "LOAN_DEDUCTION",
           transactionId: `TXN-${uuidv4()}`,
-          description: "Deducted at Source for Shares",
           status: "COMPLETED",
           relatedLoanId: loan._id,
           batchId: batchId
         },
         {
           vendorNo: exactVendorNo,
-          memberName: exactMemberName, // Pushes Member Name to Ledger
-          ledgerFolio: '151',
+          memberName: exactMemberName, 
+          folio: '151', 
           memberId: loan.memberId,
           category: "BANK_PAYOUT",
           amount: netPayout,
           entryType: "CREDIT",
           paymentMode: "PAYOUT_GATEWAY",
           transactionId: `TXN-${uuidv4()}`,
-          description: "Net Amount transferred to Bank",
-          status: "PENDING", 
+          status: "PENDING", // LedgerService must be updated to respect this
           relatedLoanId: loan._id,
           batchId: batchId
         }
       ];
 
-      await TransactionLog.insertMany(transactionsToLog);
+      // NEW: Pass through the Double-Entry Enforcer
+      await LedgerService.executeDoubleEntry(transactionsToLog, "Loan Disbursement Approved");
     }
 
     res.status(200).json({ message: "Loan status updated and ledger entries created!", loan });
@@ -166,11 +164,9 @@ exports.applyForLoan = async (req, res) => {
       return res.status(400).json({ error: "Requested loan tenure exceeds your Date of Retirement." });
     }
 
-    // --- SEQUENTIAL LOAN NUMBERING LOGIC ---
     const existingLoansCount = await Loan.countDocuments({ memberId: memberId });
     const nextSequence = existingLoansCount + 1; 
     const loanId = `${user.vendorNo}-${nextSequence}`;
-    // --------------------------------------------
 
     const newApplication = new Loan({
       loanId: loanId,
@@ -201,17 +197,16 @@ const PENALTY_CONFIG = {
 
 exports.processEMI = async (req, res) => {
   try {
-    // Accepts paymentMode, audit fields, and the Cloudinary document URL from the frontend JSON payload
     const { vendorNo, emiAmount, annualInterestRate, isLatePayment, paymentMode, paymentDate, referenceNumber, documentProofUrl } = req.body;
     
     const LOAN_PRINCIPAL_FOLIO = '152'; 
     const LOAN_INTEREST_FOLIO = '153';  
+    const BANK_RECEIPT_FOLIO = '101'; // NEW: Required for the Debit side
 
     if (!vendorNo || !emiAmount || !annualInterestRate || !paymentMode) {
       return res.status(400).json({ success: false, message: "Missing required EMI fields including Payment Mode." });
     }
 
-    // Cheques require banking clearance, so they go into a pending state.
     const txStatus = paymentMode === 'CHEQUE' ? 'PENDING_VERIFICATION' : 'COMPLETED';
 
     const loanTransactions = await TransactionLog.find({ 
@@ -237,8 +232,8 @@ exports.processEMI = async (req, res) => {
     const interestForMonth = parseFloat((outstandingPrincipal * monthlyRate).toFixed(2));
 
     let principalRepayment = parseFloat((emiAmount - interestForMonth).toFixed(2));
-
     let isFinalSettlement = false;
+    
     if (principalRepayment >= outstandingPrincipal) {
       principalRepayment = outstandingPrincipal;
       isFinalSettlement = true;
@@ -248,19 +243,27 @@ exports.processEMI = async (req, res) => {
        return res.status(400).json({ success: false, message: "EMI amount must cover the monthly interest due." });
     }
 
+    // NEW: Calculate penalty first so we can add it to the Bank Debit
+    let penaltyAmount = 0;
+    if (isLatePayment && PENALTY_CONFIG.applyPenalty && !isFinalSettlement) {
+      penaltyAmount = PENALTY_CONFIG.type === 'FLAT' 
+        ? PENALTY_CONFIG.flatAmount 
+        : parseFloat((emiAmount * PENALTY_CONFIG.percentageRate).toFixed(2));
+    }
+
+    // The total money actually hitting the bank
+    const totalDebitAmount = emiAmount + penaltyAmount;
+
     const newTransactions = [];
     const batchId = `EMI-${uuidv4()}`;
     const targetMemberId = loanTransactions[0].memberId;
 
-    // --- NEW: Fetch exact user details for EMI processing too ---
     const fetchedUserEmi = await User.findById(targetMemberId);
     const exactMemberNameEmi = fetchedUserEmi ? (fetchedUserEmi.name || `${fetchedUserEmi.firstName || ''} ${fetchedUserEmi.lastName || ''}`.trim() || 'Unknown Member') : "-";
-    // -----------------------------------------------------------
 
-    // Base transaction layout including audit fields, Cloudinary URL, and Member Name
     const baseTx = {
       vendorNo: vendorNo,
-      memberName: exactMemberNameEmi, // Pushes Member Name to Ledger
+      memberName: exactMemberNameEmi, 
       memberId: targetMemberId,
       status: txStatus,
       batchId: batchId,
@@ -269,51 +272,58 @@ exports.processEMI = async (req, res) => {
       documentProofUrl: documentProofUrl || null
     };
 
+    // --- NEW: THE MISSING DEBIT ENTRY ---
     newTransactions.push({
       ...baseTx,
-      ledgerFolio: LOAN_INTEREST_FOLIO, 
+      folio: BANK_RECEIPT_FOLIO,
+      category: 'BANK_RECEIPT',
+      amount: totalDebitAmount,
+      entryType: 'DEBIT',
+      paymentMode: paymentMode,
+      transactionId: `BANK-IN-${uuidv4()}`
+    });
+
+    // --- THE CREDIT ENTRIES ---
+    newTransactions.push({
+      ...baseTx,
+      folio: LOAN_INTEREST_FOLIO, 
       category: 'LOAN_EMI',
       amount: interestForMonth,
       entryType: 'CREDIT', 
       paymentMode: 'INTERNAL_TRANSFER',
-      transactionId: `LOAN-INT-${uuidv4()}`,
-      description: 'Monthly Loan Interest on Reducing Balance',
+      transactionId: `LOAN-INT-${uuidv4()}`
     });
 
     if (principalRepayment > 0) {
       newTransactions.push({
         ...baseTx,
-        ledgerFolio: LOAN_PRINCIPAL_FOLIO, 
+        folio: LOAN_PRINCIPAL_FOLIO, 
         category: 'LOAN_REPAYMENT',
         amount: principalRepayment,
         entryType: 'CREDIT', 
         paymentMode: paymentMode, 
-        transactionId: `LOAN-PRN-${uuidv4()}`,
-        description: isFinalSettlement ? 'Full & Final Principal Settlement' : `Monthly Principal Repayment (${paymentMode})`,
+        transactionId: `LOAN-PRN-${uuidv4()}`
       });
     }
 
-    if (isLatePayment && PENALTY_CONFIG.applyPenalty && !isFinalSettlement) {
-      const penaltyAmount = PENALTY_CONFIG.type === 'FLAT' 
-        ? PENALTY_CONFIG.flatAmount 
-        : parseFloat((emiAmount * PENALTY_CONFIG.percentageRate).toFixed(2));
-
+    if (penaltyAmount > 0) {
       newTransactions.push({
         ...baseTx,
-        ledgerFolio: LOAN_PRINCIPAL_FOLIO, 
+        folio: LOAN_PRINCIPAL_FOLIO, // Keeping your original Folio mapping
         category: 'PENALTY',
         amount: penaltyAmount,
         entryType: 'CREDIT', 
         paymentMode: paymentMode,
-        transactionId: `PENALTY-${uuidv4()}`,
-        description: 'Late EMI Payment Penalty',
+        transactionId: `PENALTY-${uuidv4()}`
       });
     }
 
-    const savedTransactions = await TransactionLog.insertMany(newTransactions);
+    // NEW: Pass through the Double-Entry Enforcer
+    const description = isFinalSettlement ? 'Full & Final Principal Settlement' : `Monthly EMI Repayment (${paymentMode})`;
+    const savedTransactions = await LedgerService.executeDoubleEntry(newTransactions, description);
+    
     const newOutstandingBalance = parseFloat((outstandingPrincipal - principalRepayment).toFixed(2));
 
-    // --- AUTO-CLOSE LOAN (Only if funds are completely cleared) ---
     if (txStatus === 'COMPLETED' && newOutstandingBalance <= 0) {
       await Loan.findOneAndUpdate(
         { memberId: targetMemberId, status: { $in: ['APPROVED', 'PENDING'] } }, 
@@ -332,21 +342,21 @@ exports.processEMI = async (req, res) => {
         interestDeducted: interestForMonth,
         principalReduced: principalRepayment,
         newOutstandingBalance: txStatus === 'COMPLETED' ? newOutstandingBalance : outstandingPrincipal,
-        penaltyApplied: isLatePayment && PENALTY_CONFIG.applyPenalty && !isFinalSettlement ? true : false,
+        penaltyApplied: penaltyAmount > 0,
         transactions: savedTransactions.map(t => t.transactionId)
       }
     });
 
   } catch (error) {
     console.error("Error processing EMI:", error);
-    res.status(500).json({ success: false, message: "Server error processing EMI" });
+    res.status(500).json({ success: false, message: error.message || "Server error processing EMI" });
   }
 };
+
 // ==========================================
 // NEW DASHBOARD CONTROLLERS (Add to bottom)
 // ==========================================
 
-// Fetch all pending transactions for Admin Clearance Dashboard
 exports.getPendingTransactions = async (req, res) => {
   try {
     const pendingTxns = await TransactionLog.find({ status: 'PENDING_VERIFICATION', entryType: 'CREDIT', category: 'LOAN_REPAYMENT' })
@@ -360,7 +370,6 @@ exports.getPendingTransactions = async (req, res) => {
   }
 };
 
-// Approve a pending Cheque/Cash transaction and auto-close loan if balance hits 0
 exports.approvePendingTransaction = async (req, res) => {
   try {
     const { transactionId } = req.params;
@@ -369,17 +378,14 @@ exports.approvePendingTransaction = async (req, res) => {
     if (!transaction) return res.status(404).json({ success: false, message: "Transaction not found." });
     if (transaction.status === 'COMPLETED') return res.status(400).json({ success: false, message: "Transaction is already cleared." });
 
-    // 1. Mark the main principal repayment transaction as COMPLETED
     transaction.status = 'COMPLETED';
     await transaction.save();
 
-    // 2. Also approve any associated Interest or Penalty transactions from the exact same EMI batch
     await TransactionLog.updateMany(
       { batchId: transaction.batchId, status: 'PENDING_VERIFICATION' },
       { $set: { status: 'COMPLETED' } }
     );
 
-    // 3. Re-calculate outstanding balance to see if this cleared cheque closes the loan
     const loanTransactions = await TransactionLog.find({ 
       vendorNo: transaction.vendorNo, 
       ledgerFolio: '152', 
@@ -412,14 +418,11 @@ exports.approvePendingTransaction = async (req, res) => {
   }
 };
 
-// Fetch loan data strictly for the logged-in member
 exports.getMyLoanStatement = async (req, res) => {
   try {
     const memberId = req.user.id || req.user._id || req.user.userId;
     const loans = await Loan.find({ memberId: memberId, status: { $in: ['APPROVED', 'ACTIVE', 'CLOSED'] } });
     
-    // In a full production app, you would dynamically calculate the schedule here 
-    // from the TransactionLog, similar to how we calculate the reducing balance.
     res.status(200).json({ success: true, data: loans });
   } catch (error) {
     console.error("Error fetching member loan:", error);
