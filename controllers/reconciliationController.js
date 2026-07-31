@@ -37,6 +37,29 @@ const parseBankDate = (dateVal) => {
 };
 
 // ==========================================
+// NEW: STRICT MONTH & YEAR FILTER
+// ==========================================
+const isDateInPeriod = (dateStr, targetMonth, targetFY) => {
+  if (!dateStr || !dateStr.includes('/')) return false;
+  try {
+    const [d, m, y] = dateStr.split('/');
+    const monthInt = parseInt(m, 10);
+    const yearInt = parseInt(y, 10);
+    
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const targetMonthIndex = months.indexOf(targetMonth) + 1;
+    
+    // Determine the actual calendar year based on the FY (e.g., '2023-2024')
+    const [startYear, endYear] = targetFY.split('-').map(Number);
+    const targetYear = (targetMonthIndex >= 1 && targetMonthIndex <= 3) ? endYear : startYear;
+    
+    return (monthInt === targetMonthIndex) && (yearInt === targetYear);
+  } catch (e) {
+    return false;
+  }
+};
+
+// ==========================================
 // TWO-TIER MATCHING LOGIC (1-to-1 & 1-to-Many)
 // ==========================================
 async function findInternalMatch(depositAmount, bankDate, aiModelName = "Local Engine") {
@@ -105,6 +128,8 @@ exports.uploadBankStatement = async (req, res) => {
     const fileBuffer = req.file.buffer;
     const fileType = req.file.mimetype;
     let processingMode = req.body.processingMode || 'STANDARD'; 
+    const financialYear = req.body.financialYear || '2023-2024'; 
+    const month = req.body.month || 'April'; 
 
     let extractedData = [];
     let rawTextForAI = "";
@@ -209,9 +234,15 @@ exports.uploadBankStatement = async (req, res) => {
       reconciliationResults = await runStandardEngine(extractedData);
     }
 
+    // ==========================================
+    // PURGE ALL TRANSACTIONS OUTSIDE SELECTED MONTH
+    // ==========================================
+    reconciliationResults.matched = reconciliationResults.matched.filter(item => isDateInPeriod(item.bankDate, month, financialYear));
+    reconciliationResults.suspense = reconciliationResults.suspense.filter(item => isDateInPeriod(item.bankDate, month, financialYear));
+
     res.status(200).json({
       success: true,
-      message: `Statement processed successfully.`,
+      message: `Statement processed successfully for ${month} ${financialYear}.`,
       data: { ...reconciliationResults, metadata }
     });
 
@@ -468,6 +499,7 @@ exports.approveReconciliation = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
 // ==========================================
 // NEW: BRS GENERATOR & PERMANENT SAVER
 // ==========================================
