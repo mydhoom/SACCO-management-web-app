@@ -11,7 +11,6 @@ const BankStatement = require('../models/BankStatement');
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-// Helper to safely extract JSON from Gemini Output
 const extractCleanJSON = (text) => {
   try {
     const jsonStart = text.indexOf('[');
@@ -25,20 +24,15 @@ const extractCleanJSON = (text) => {
   }
 };
 
-// Helper to fix weird Excel Serial Dates
 const parseBankDate = (dateVal) => {
   if (!dateVal) return "Unknown Date";
   if (!isNaN(dateVal) && typeof dateVal === 'number') {
-    // Convert Excel serial number to JS Date
     const jsDate = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
-    return jsDate.toLocaleDateString('en-GB'); // Formats as DD/MM/YYYY
+    return jsDate.toLocaleDateString('en-GB'); 
   }
   return String(dateVal).trim();
 };
 
-// ==========================================
-// NEW: STRICT MONTH & YEAR FILTER
-// ==========================================
 const isDateInPeriod = (dateStr, targetMonth, targetFY) => {
   if (!dateStr || !dateStr.includes('/')) return false;
   try {
@@ -49,7 +43,6 @@ const isDateInPeriod = (dateStr, targetMonth, targetFY) => {
     const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
     const targetMonthIndex = months.indexOf(targetMonth) + 1;
     
-    // Determine the actual calendar year based on the FY (e.g., '2023-2024')
     const [startYear, endYear] = targetFY.split('-').map(Number);
     const targetYear = (targetMonthIndex >= 1 && targetMonthIndex <= 3) ? endYear : startYear;
     
@@ -59,9 +52,6 @@ const isDateInPeriod = (dateStr, targetMonth, targetFY) => {
   }
 };
 
-// ==========================================
-// TWO-TIER MATCHING LOGIC (1-to-1 & 1-to-Many)
-// ==========================================
 async function findInternalMatch(depositAmount, bankDate, aiModelName = "Local Engine") {
   const amount = Number(depositAmount);
   
@@ -118,9 +108,6 @@ async function findInternalMatch(depositAmount, bankDate, aiModelName = "Local E
   return null; 
 }
 
-// ==========================================
-// UPLOAD & ROUTING CONTROLLER
-// ==========================================
 exports.uploadBankStatement = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded." });
@@ -134,7 +121,6 @@ exports.uploadBankStatement = async (req, res) => {
     let extractedData = [];
     let rawTextForAI = "";
     
-    // Moved metadata to the top so the entire function can see it!
     let metadata = { bankName: "Not Found", accountNo: "Not Found", statementPeriod: "Not Found" };
 
     if (fileType === 'application/pdf') {
@@ -146,37 +132,31 @@ exports.uploadBankStatement = async (req, res) => {
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
       
-      // ==========================================
-      // METADATA PRE-SCANNER
-      // ==========================================
       const rawRows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: null });
       let headerRowIndex = 0; 
       
-      // FIX 1: Strict Metadata Scanner (Ignores long table rows and UTR descriptions)
       const topRows = rawRows.slice(0, 15);
       topRows.forEach(row => {
         if (!row || !Array.isArray(row)) return;
         
-        // Skip rows that look like full transaction table rows
         const validCells = row.filter(cell => cell !== null && cell !== '');
         if (validCells.length === 0 || validCells.length > 3) return; 
 
-        // Clean the row text for easy searching
         const rowStr = validCells.join(' ').replace(/\s+/g, ' ').trim();
         const lowerStr = rowStr.toLowerCase();
 
         if (rowStr.length === 0) return;
 
-        // 1. Extract Account Number
+        // FIX: STRICT EXCLUSION - If the row contains a Date format, SKIP IT instantly.
+        if (rowStr.match(/\d{2}[\/\-]\d{2}[\/\-]\d{4}/)) return;
+
         if ((lowerStr.includes('account no') || lowerStr.includes('a/c no')) && metadata.accountNo === "Not Found") {
-          const match = rowStr.match(/[\d]{9,18}/); // Looks for standard 9-18 digit account numbers
+          const match = rowStr.match(/[\d]{9,18}/); 
           if (match) metadata.accountNo = match[0];
         }
-        // 2. Extract Date Range / Period
         if ((lowerStr.includes('period') || lowerStr.includes('statement from') || lowerStr.includes('date:')) && metadata.statementPeriod === "Not Found") {
           metadata.statementPeriod = rowStr;
         }
-        // 3. Extract Bank Name
         if ((lowerStr.includes('bank') || lowerStr.includes('limited') || lowerStr.includes('ltd')) && metadata.bankName === "Not Found" && !lowerStr.includes('statement') && !lowerStr.includes('utr') && !lowerStr.includes('neft')) {
           metadata.bankName = rowStr;
         }
@@ -220,7 +200,6 @@ exports.uploadBankStatement = async (req, res) => {
         }
       });
 
-      // Removed 100-row limit for AI
       if (processingMode === 'AI') {
         rawTextForAI = JSON.stringify(extractedData); 
       }
@@ -239,9 +218,6 @@ exports.uploadBankStatement = async (req, res) => {
       reconciliationResults = await runStandardEngine(extractedData);
     }
 
-    // ==========================================
-    // PURGE ALL TRANSACTIONS OUTSIDE SELECTED MONTH
-    // ==========================================
     reconciliationResults.matched = reconciliationResults.matched.filter(item => isDateInPeriod(item.bankDate, month, financialYear));
     reconciliationResults.suspense = reconciliationResults.suspense.filter(item => isDateInPeriod(item.bankDate, month, financialYear));
 
@@ -257,9 +233,6 @@ exports.uploadBankStatement = async (req, res) => {
   }
 };
 
-// ==========================================
-// ENGINE 1: MULTI-MODEL AI CASCADE
-// ==========================================
 async function runAIEngine(rawText) {
   const prompt = `
     You are a bank reconciliation assistant. Read the bank statement text. 
@@ -323,7 +296,6 @@ async function runAIEngine(rawText) {
     const debitAmt = Number(item.debit) || 0;
     const balanceAmt = Number(item.balance) || 0;
 
-    // If it is a deposit, check against database
     if (creditAmt > 0) {
       const matchResult = await findInternalMatch(creditAmt, cleanDate, successfulModel);
 
@@ -352,7 +324,6 @@ async function runAIEngine(rawText) {
         });
       }
     } else if (debitAmt > 0) {
-      // If it is a withdrawal, send to frontend as a Bank Debit
       suspense.push({
           bankDate: cleanDate,
           bankDescription: item.description,
@@ -369,9 +340,6 @@ async function runAIEngine(rawText) {
   return { matched, suspense };
 }
 
-// ==========================================
-// ENGINE 2: BULLETPROOF STANDARD MATCHER
-// ==========================================
 async function runStandardEngine(excelData) {
   let matched = [];
   let suspense = [];
@@ -436,9 +404,6 @@ async function runStandardEngine(excelData) {
   return { matched, suspense };
 }
 
-// ==========================================
-// 3. THE APPROVAL ENGINE 
-// ==========================================
 exports.approveReconciliation = async (req, res) => {
   try {
     const { matchedTransactions, suspenseDeposits } = req.body;
@@ -460,7 +425,6 @@ exports.approveReconciliation = async (req, res) => {
       const systemUser = await User.findOne({ role: 'ADMIN' }) || await User.findOne();
 
       for (const item of suspenseDeposits) {
-        // Skip actual bank withdrawals (we only reconcile incoming money)
         if (item.status === 'DEBIT') continue;
 
         const suspenseEntries = [
@@ -470,7 +434,7 @@ exports.approveReconciliation = async (req, res) => {
             memberId: systemUser ? systemUser._id : null,
             ledgerFolio: '101',
             category: 'BANK_RECEIPT',
-            amount: item.credit, // Now mapping to credit
+            amount: item.credit, 
             entryType: 'DEBIT',
             paymentMode: 'BANK_TRANSFER',
             transactionDate: item.bankDate ? new Date(item.bankDate) : new Date(),
@@ -505,29 +469,21 @@ exports.approveReconciliation = async (req, res) => {
   }
 };
 
-// ==========================================
-// NEW: BRS GENERATOR & PERMANENT SAVER
-// ==========================================
 exports.saveAndGenerateBRS = async (req, res) => {
   try {
-    // FIX 2: Accept explicit closingBalance from frontend
     const { financialYear, month, metadata, matched, suspense, closingBalance } = req.body;
 
     if (!financialYear || !month) {
       return res.status(400).json({ success: false, message: "Financial Year and Month are required." });
     }
 
-    // Extract IDs that were matched in the current statement to exclude them from Uncleared Cheques
     const matchedIds = (matched || []).map(m => m.systemTransactionId);
-    
-    // BUCKET 3: Query the Master Journal for Uncleared System Transactions
     const pendingSystemTx = await TransactionLog.find({ status: 'PENDING_VERIFICATION' }).populate('memberId', 'name vendorNo');
     
     let unclearedReceipts = []; 
     let unclearedPayments = []; 
     
     pendingSystemTx.forEach(tx => {
-      // Exclude ones we literally just matched in this session
       if (matchedIds.includes(tx.transactionId)) return; 
       
       const txData = {
@@ -538,23 +494,20 @@ exports.saveAndGenerateBRS = async (req, res) => {
         member: tx.memberId ? tx.memberId.name : 'Unknown'
       };
 
-      if (tx.entryType === 'DEBIT') unclearedReceipts.push(txData); // Sacco Receipt (Cheque Deposited)
-      else if (tx.entryType === 'CREDIT') unclearedPayments.push(txData); // Sacco Payment (Cheque Issued)
+      if (tx.entryType === 'DEBIT') unclearedReceipts.push(txData); 
+      else if (tx.entryType === 'CREDIT') unclearedPayments.push(txData); 
     });
 
-    // Compute Bucket Totals
     const totalUnclearedReceipts = unclearedReceipts.reduce((sum, item) => sum + item.amount, 0);
     const totalUnclearedPayments = unclearedPayments.reduce((sum, item) => sum + item.amount, 0);
     
     const totalUnidentifiedDeposits = (suspense || []).reduce((sum, item) => sum + (Number(item.credit) || 0), 0);
     const totalDirectBankDebits = (suspense || []).reduce((sum, item) => sum + (Number(item.debit) || 0), 0);
 
-    // Explicitly set the Bank Balance sent from React
     const validBalances = (suspense || []).map(s => Number(s.balance)).filter(b => !isNaN(b) && b > 0);
     const calculatedClosingBalance = validBalances.length > 0 ? validBalances[validBalances.length - 1] : 0;
     const closingBankBalance = closingBalance || calculatedClosingBalance;
 
-    // Mathematical Bridge (Reverse-engineered System Cash Book Balance)
     const systemCashBookBalance = closingBankBalance - totalUnidentifiedDeposits - totalUnclearedPayments + totalDirectBankDebits + totalUnclearedReceipts;
 
     const brsSummary = {
@@ -568,7 +521,6 @@ exports.saveAndGenerateBRS = async (req, res) => {
       unclearedPaymentsDetails: unclearedPayments
     };
 
-    // Save or Update the Database Permanently
     const statementDoc = await BankStatement.findOneAndUpdate(
       { financialYear, month },
       {
@@ -595,9 +547,6 @@ exports.saveAndGenerateBRS = async (req, res) => {
   }
 };
 
-// ==========================================
-// NEW: FETCH SAVED STATEMENT BY PERIOD
-// ==========================================
 exports.getStatementByPeriod = async (req, res) => {
   try {
     const { financialYear, month } = req.query;
