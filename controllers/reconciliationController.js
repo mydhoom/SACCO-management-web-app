@@ -24,19 +24,30 @@ const extractCleanJSON = (text) => {
   }
 };
 
+// FIX: Normalise hyphens to slashes so parsing never breaks
 const parseBankDate = (dateVal) => {
   if (!dateVal) return "Unknown Date";
   if (!isNaN(dateVal) && typeof dateVal === 'number') {
     const jsDate = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
     return jsDate.toLocaleDateString('en-GB'); 
   }
-  return String(dateVal).trim();
+  return String(dateVal).trim().replace(/-/g, '/');
 };
 
+// FIX: Aggressive date-cleaning to ensure Excel hyphen-dates (03-04-2023) filter perfectly
 const isDateInPeriod = (dateStr, targetMonth, targetFY) => {
-  if (!dateStr || !dateStr.includes('/')) return false;
+  if (!dateStr) return false;
+  const cleanDate = String(dateStr).replace(/-/g, '/');
+  if (!cleanDate.includes('/')) return false;
+  
   try {
-    const [d, m, y] = dateStr.split('/');
+    const parts = cleanDate.split('/');
+    let d, m, y;
+    if (parts[0].length === 4) {
+        [y, m, d] = parts;
+    } else {
+        [d, m, y] = parts;
+    }
     const monthInt = parseInt(m, 10);
     const yearInt = parseInt(y, 10);
     
@@ -135,7 +146,8 @@ exports.uploadBankStatement = async (req, res) => {
       const rawRows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: null });
       let headerRowIndex = 0; 
       
-      const topRows = rawRows.slice(0, 15);
+      // FIX: Extends scan scope and implements bulletproof garbage-rejection
+      const topRows = rawRows.slice(0, 25);
       topRows.forEach(row => {
         if (!row || !Array.isArray(row)) return;
         
@@ -147,6 +159,7 @@ exports.uploadBankStatement = async (req, res) => {
 
         if (rowStr.length === 0) return;
 
+        // Skip any row containing a date pattern instantly
         if (rowStr.match(/\d{2}[\/\-]\d{2}[\/\-]\d{4}/)) return;
 
         if ((lowerStr.includes('account no') || lowerStr.includes('a/c no')) && metadata.accountNo === "Not Found") {
@@ -156,7 +169,17 @@ exports.uploadBankStatement = async (req, res) => {
         if ((lowerStr.includes('period') || lowerStr.includes('statement from') || lowerStr.includes('date:')) && metadata.statementPeriod === "Not Found") {
           metadata.statementPeriod = rowStr;
         }
-        if ((lowerStr.includes('bank') || lowerStr.includes('limited') || lowerStr.includes('ltd')) && metadata.bankName === "Not Found" && !lowerStr.includes('statement') && !lowerStr.includes('utr') && !lowerStr.includes('neft')) {
+        
+        // Block UTR, NEFT, and standard transaction remarks from becoming Bank Name
+        if ((lowerStr.includes('bank') || lowerStr.includes('limited') || lowerStr.includes('ltd')) 
+            && metadata.bankName === "Not Found" 
+            && !lowerStr.includes('statement') 
+            && !lowerStr.includes('utr') 
+            && !lowerStr.includes('neft')
+            && !lowerStr.includes('by ')
+            && !lowerStr.includes('to ')
+            && !lowerStr.includes('s no')
+            && !lowerStr.includes('transfer')) {
           metadata.bankName = rowStr;
         }
       });
@@ -217,6 +240,7 @@ exports.uploadBankStatement = async (req, res) => {
       reconciliationResults = await runStandardEngine(extractedData);
     }
 
+    // FIX: Reverse loop perfectly extracts absolute final balance before filtering
     let trueClosingBalance = 0;
     if (extractedData.length > 0) {
       for (let i = extractedData.length - 1; i >= 0; i--) {
@@ -268,7 +292,6 @@ async function runAIEngine(rawText) {
 
   for (const aiStep of aiCascade) {
     try {
-      console.log(`[AI Cascade] Attempting: ${aiStep.name}...`);
       if (aiStep.provider === 'groq') {
         const response = await groq.chat.completions.create({
           model: aiStep.model,
