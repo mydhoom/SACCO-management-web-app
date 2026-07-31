@@ -134,7 +134,7 @@ exports.uploadBankStatement = async (req, res) => {
     let extractedData = [];
     let rawTextForAI = "";
     
-    // FIX: Moved metadata to the top so the entire function can see it!
+    // Moved metadata to the top so the entire function can see it!
     let metadata = { bankName: "Not Found", accountNo: "Not Found", statementPeriod: "Not Found" };
 
     if (fileType === 'application/pdf') {
@@ -152,12 +152,17 @@ exports.uploadBankStatement = async (req, res) => {
       const rawRows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: null });
       let headerRowIndex = 0; 
       
-      // Scan only the top 30 rows for bank metadata before the table starts
-      const topRows = rawRows.slice(0, 30);
+      // FIX 1: Strict Metadata Scanner (Ignores long table rows and UTR descriptions)
+      const topRows = rawRows.slice(0, 15);
       topRows.forEach(row => {
         if (!row || !Array.isArray(row)) return;
+        
+        // Skip rows that look like full transaction table rows
+        const validCells = row.filter(cell => cell !== null && cell !== '');
+        if (validCells.length === 0 || validCells.length > 3) return; 
+
         // Clean the row text for easy searching
-        const rowStr = row.filter(cell => cell !== null && cell !== '').join(' ').replace(/\s+/g, ' ').trim();
+        const rowStr = validCells.join(' ').replace(/\s+/g, ' ').trim();
         const lowerStr = rowStr.toLowerCase();
 
         if (rowStr.length === 0) return;
@@ -172,7 +177,7 @@ exports.uploadBankStatement = async (req, res) => {
           metadata.statementPeriod = rowStr;
         }
         // 3. Extract Bank Name
-        if ((lowerStr.includes('bank') || lowerStr.includes('limited') || lowerStr.includes('ltd')) && metadata.bankName === "Not Found" && !lowerStr.includes('statement')) {
+        if ((lowerStr.includes('bank') || lowerStr.includes('limited') || lowerStr.includes('ltd')) && metadata.bankName === "Not Found" && !lowerStr.includes('statement') && !lowerStr.includes('utr') && !lowerStr.includes('neft')) {
           metadata.bankName = rowStr;
         }
       });
@@ -505,7 +510,8 @@ exports.approveReconciliation = async (req, res) => {
 // ==========================================
 exports.saveAndGenerateBRS = async (req, res) => {
   try {
-    const { financialYear, month, metadata, matched, suspense } = req.body;
+    // FIX 2: Accept explicit closingBalance from frontend
+    const { financialYear, month, metadata, matched, suspense, closingBalance } = req.body;
 
     if (!financialYear || !month) {
       return res.status(400).json({ success: false, message: "Financial Year and Month are required." });
@@ -543,8 +549,10 @@ exports.saveAndGenerateBRS = async (req, res) => {
     const totalUnidentifiedDeposits = (suspense || []).reduce((sum, item) => sum + (Number(item.credit) || 0), 0);
     const totalDirectBankDebits = (suspense || []).reduce((sum, item) => sum + (Number(item.debit) || 0), 0);
 
+    // Explicitly set the Bank Balance sent from React
     const validBalances = (suspense || []).map(s => Number(s.balance)).filter(b => !isNaN(b) && b > 0);
-    const closingBankBalance = validBalances.length > 0 ? validBalances[validBalances.length - 1] : 0;
+    const calculatedClosingBalance = validBalances.length > 0 ? validBalances[validBalances.length - 1] : 0;
+    const closingBankBalance = closingBalance || calculatedClosingBalance;
 
     // Mathematical Bridge (Reverse-engineered System Cash Book Balance)
     const systemCashBookBalance = closingBankBalance - totalUnidentifiedDeposits - totalUnclearedPayments + totalDirectBankDebits + totalUnclearedReceipts;
