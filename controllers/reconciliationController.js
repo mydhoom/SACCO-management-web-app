@@ -117,8 +117,38 @@ exports.uploadBankStatement = async (req, res) => {
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
       
+      // ==========================================
+      // NEW: METADATA PRE-SCANNER
+      // ==========================================
       const rawRows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: null });
       let headerRowIndex = 0; 
+      
+      let metadata = { bankName: "Not Found", accountNo: "Not Found", statementPeriod: "Not Found" };
+      
+      // Scan only the top 30 rows for bank metadata before the table starts
+      const topRows = rawRows.slice(0, 30);
+      topRows.forEach(row => {
+        if (!row || !Array.isArray(row)) return;
+        // Clean the row text for easy searching
+        const rowStr = row.filter(cell => cell !== null && cell !== '').join(' ').replace(/\s+/g, ' ').trim();
+        const lowerStr = rowStr.toLowerCase();
+
+        if (rowStr.length === 0) return;
+
+        // 1. Extract Account Number
+        if ((lowerStr.includes('account no') || lowerStr.includes('a/c no')) && metadata.accountNo === "Not Found") {
+          const match = rowStr.match(/[\d]{9,18}/); // Looks for standard 9-18 digit account numbers
+          if (match) metadata.accountNo = match[0];
+        }
+        // 2. Extract Date Range / Period
+        if ((lowerStr.includes('period') || lowerStr.includes('statement from') || lowerStr.includes('date:')) && metadata.statementPeriod === "Not Found") {
+          metadata.statementPeriod = rowStr;
+        }
+        // 3. Extract Bank Name
+        if ((lowerStr.includes('bank') || lowerStr.includes('limited') || lowerStr.includes('ltd')) && metadata.bankName === "Not Found" && !lowerStr.includes('statement')) {
+          metadata.bankName = rowStr;
+        }
+      });
       
       for (let i = 0; i < rawRows.length; i++) {
         const row = rawRows[i];
@@ -180,7 +210,7 @@ exports.uploadBankStatement = async (req, res) => {
     res.status(200).json({
       success: true,
       message: `Statement processed successfully.`,
-      data: reconciliationResults
+      data: { ...reconciliationResults, metadata }
     });
 
   } catch (error) {
