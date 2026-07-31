@@ -147,90 +147,104 @@ const workbook = xlsx.read(fileBuffer, { type: 'buffer' });
 // ==========================================
 // ENGINE 1: MULTI-MODEL AI CASCADE
 // ==========================================
-async function runAIEngine(rawText) {
-  const prompt = `
-    You are a bank reconciliation assistant. Read the bank statement text. 
-    Extract deposits/credits into the account. Ignore withdrawals.
-    Return STRICTLY a JSON object with a single key "transactions" containing an array of objects:
-    "date", "amount", "referenceNumber", "description", "suggestedType".
-    Statement: ${rawText}
-  `;
+// ==========================================
+// UPLOAD & ROUTING CONTROLLER
+// ==========================================
+exports.uploadBankStatement = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded." });
 
-  let parsedAIResults = null;
-  let successfulModel = "";
+    const fileBuffer = req.file.buffer;
+    const fileType = req.file.mimetype;
+    let processingMode = req.body.processingMode || 'STANDARD'; 
 
-  const aiCascade = [
-    { provider: 'groq', model: 'llama-3.3-70b-versatile', name: 'Groq Advanced' },
-    { provider: 'groq', model: 'llama-3.1-8b-instant', name: 'Groq Standard' },
-    { provider: 'gemini', model: 'gemini-1.5-pro', name: 'Gemini Advanced' },
-    { provider: 'gemini', model: 'gemini-1.5-flash', name: 'Gemini Standard' }
-  ];
+    let extractedData = [];
+    let rawTextForAI = "";
 
-  for (const aiStep of aiCascade) {
-    try {
-      console.log(`[AI Cascade] Attempting: ${aiStep.name}...`);
-      if (aiStep.provider === 'groq') {
-        const response = await groq.chat.completions.create({
-          model: aiStep.model,
-          messages: [
-            { role: 'system', content: 'You strictly output valid JSON objects.' },
-            { role: 'user', content: prompt }
-          ],
-          response_format: { type: 'json_object' }
-        });
-        parsedAIResults = JSON.parse(response.choices[0].message.content).transactions;
-      } else {
-        const response = await ai.models.generateContent({
-          model: aiStep.model,
-          contents: prompt
-        });
-        const rawJson = extractCleanJSON(response.text);
-        parsedAIResults = Array.isArray(rawJson) ? rawJson : (rawJson.transactions || []);
-      }
-      
-      if (parsedAIResults && Array.isArray(parsedAIResults)) {
-        successfulModel = aiStep.name;
-        break; 
-      }
-    } catch (error) {
-      console.warn(`[WARNING] ${aiStep.name} failed. Moving to next...`);
-    }
-  }
-
-  if (!parsedAIResults || parsedAIResults.length === 0) {
-    throw new Error("All AI models failed.");
-  }
-
-  let matched = [];
-  let suspense = [];
-
-  await Promise.all(parsedAIResults.map(async (item) => {
-    if (!item.amount || isNaN(item.amount)) return;
-
-    const matchResult = await findInternalMatch(item.amount, item.date, successfulModel);
-
-    if (matchResult) {
-      matched.push({
-        systemTransactionId: matchResult.systemTransactionId,
-        bankDate: item.date,
-        bankDescription: item.description,
-        amount: Number(item.amount),
-        member: matchResult.member,
-        confidence: matchResult.confidence
-      });
+    // PARSE FILE
+    if (fileType === 'application/pdf') {
+      processingMode = 'AI';
+      const pdfData = await pdfParse(fileBuffer);
+      rawTextForAI = pdfData.text;
     } else {
-      suspense.push({
-        bankDate: item.date,
-        bankDescription: item.description,
-        referenceNumber: item.referenceNumber,
-        amount: Number(item.amount),
-        suggestedType: item.suggestedType
-      });
-    }
-  }));
+      const workbook = xlsx.read(fileBuffer, { type: 'buffer' });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      
+      // ==========================================
+      // NEW: DYNAMIC HEADER SCANNER
+      // ==========================================
+      const rawRows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: null });
+      let headerRowIndex = 0; 
+      
+      for (let i = 0; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        if (row && Array.isArray(row)) {
+          const isHeaderRow = row.some(cell => {
+            if (!cell) return false;
+            const cleanCell = String(cell).toLowerCase().replace(/[^a-z0-9]/g, '');
+            return cleanCell === 'sno' || cleanCell.includes('depositamount');
+          });
+          
+          if (isHeaderRow) {
+            headerRowIndex = i; // Found the exact row the headers start!
+            break;
+          }
+        }
+      }
 
-  return { matched, suspense };
-}
+      const rawData = xlsx.utils.sheet_to_json(sheet, { range: headerRowIndex, defval: null });
+      
+      rawData.forEach((row) => {
+        let cleanRow = {};
+        let sNoValue = null;
+        
+        for (let key in row) {
+          if (key && !key.toString().startsWith('__EMPTY')) {
+            cleanRow[key.toString().trim()] = row[key];
+            
+            const cleanKey = key.toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (cleanKey === 'sno' || cleanKey === 'srno' || cleanKey === 'serialno') {
+              sNoValue = row[key];
+            }
+          }
+        }
+        
+        // Skip footers/empty rows
+        if (sNoValue !== null && sNoValue !== undefined && String(sNoValue).trim() !== '' && !isNaN(Number(sNoValue))) {
+          extractedData.push(cleanRow);
+        }
+      });
+
+      if (processingMode === 'AI') {
+        rawTextForAI = JSON.stringify(extractedData.slice(0, 100)); 
+      }
+    }
+
+    let reconciliationResults = { matched: [], suspense: [] };
+
+    if (processingMode === 'AI') {
+      try {
+        reconciliationResults = await runAIEngine(rawTextForAI);
+      } catch (error) {
+        console.warn("⚠️ ALL AI MODELS FAILED. Falling back to Local Standard Engine.");
+        reconciliationResults = await runStandardEngine(extractedData);
+      }
+    } else {
+      reconciliationResults = await runStandardEngine(extractedData);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Statement processed successfully.`,
+      data: reconciliationResults
+    });
+
+  } catch (error) {
+    console.error("Reconciliation Error:", error);
+    res.status(500).json({ success: false, message: "Server error during file processing." });
+  }
+};
 
 // ==========================================
 // ENGINE 2: BULLETPROOF STANDARD MATCHER
