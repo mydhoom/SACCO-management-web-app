@@ -11,5 +11,6 @@ router.post('/upload', upload.single('statementFile'), reconciliationController.
 router.post('/approve', reconciliationController.approveReconciliation);
 router.get('/period', reconciliationController.getStatementByPeriod);
 router.post('/save-brs', reconciliationController.saveAndGenerateBRS);
+router.get('/yearly', reconciliationController.getYearlyStatement);
 
 module.exports = router;
