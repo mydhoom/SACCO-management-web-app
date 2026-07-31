@@ -5,6 +5,7 @@ const { GoogleGenAI } = require('@google/genai');
 const TransactionLog = require('../models/TransactionLog');
 const User = require('../models/User');
 const LedgerService = require('../services/LedgerService'); 
+const BankStatement = require('../models/BankStatement');
 
 // 1. Initialize API Clients
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -464,6 +465,112 @@ exports.approveReconciliation = async (req, res) => {
 
   } catch (error) {
     console.error("Approval Error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+// ==========================================
+// NEW: BRS GENERATOR & PERMANENT SAVER
+// ==========================================
+exports.saveAndGenerateBRS = async (req, res) => {
+  try {
+    const { financialYear, month, metadata, matched, suspense } = req.body;
+
+    if (!financialYear || !month) {
+      return res.status(400).json({ success: false, message: "Financial Year and Month are required." });
+    }
+
+    // Extract IDs that were matched in the current statement to exclude them from Uncleared Cheques
+    const matchedIds = (matched || []).map(m => m.systemTransactionId);
+    
+    // BUCKET 3: Query the Master Journal for Uncleared System Transactions
+    const pendingSystemTx = await TransactionLog.find({ status: 'PENDING_VERIFICATION' }).populate('memberId', 'name vendorNo');
+    
+    let unclearedReceipts = []; 
+    let unclearedPayments = []; 
+    
+    pendingSystemTx.forEach(tx => {
+      // Exclude ones we literally just matched in this session
+      if (matchedIds.includes(tx.transactionId)) return; 
+      
+      const txData = {
+        date: tx.transactionDate.toLocaleDateString('en-GB'),
+        description: tx.description || tx.category,
+        amount: tx.amount,
+        transactionId: tx.transactionId,
+        member: tx.memberId ? tx.memberId.name : 'Unknown'
+      };
+
+      if (tx.entryType === 'DEBIT') unclearedReceipts.push(txData); // Sacco Receipt (Cheque Deposited)
+      else if (tx.entryType === 'CREDIT') unclearedPayments.push(txData); // Sacco Payment (Cheque Issued)
+    });
+
+    // Compute Bucket Totals
+    const totalUnclearedReceipts = unclearedReceipts.reduce((sum, item) => sum + item.amount, 0);
+    const totalUnclearedPayments = unclearedPayments.reduce((sum, item) => sum + item.amount, 0);
+    
+    const totalUnidentifiedDeposits = (suspense || []).reduce((sum, item) => sum + (Number(item.credit) || 0), 0);
+    const totalDirectBankDebits = (suspense || []).reduce((sum, item) => sum + (Number(item.debit) || 0), 0);
+
+    const validBalances = (suspense || []).map(s => Number(s.balance)).filter(b => !isNaN(b) && b > 0);
+    const closingBankBalance = validBalances.length > 0 ? validBalances[validBalances.length - 1] : 0;
+
+    // Mathematical Bridge (Reverse-engineered System Cash Book Balance)
+    const systemCashBookBalance = closingBankBalance - totalUnidentifiedDeposits - totalUnclearedPayments + totalDirectBankDebits + totalUnclearedReceipts;
+
+    const brsSummary = {
+      systemCashBookBalance,
+      totalUnidentifiedDeposits,
+      totalUnclearedPayments,
+      totalDirectBankDebits,
+      totalUnclearedReceipts,
+      closingBankBalance,
+      unclearedReceiptsDetails: unclearedReceipts,
+      unclearedPaymentsDetails: unclearedPayments
+    };
+
+    // Save or Update the Database Permanently
+    const statementDoc = await BankStatement.findOneAndUpdate(
+      { financialYear, month },
+      {
+        financialYear,
+        month,
+        bankName: metadata?.bankName || "Unknown",
+        accountNumber: metadata?.accountNo || "Unknown",
+        statementPeriod: metadata?.statementPeriod || "Unknown",
+        closingBankBalance,
+        totalUnidentifiedDeposits,
+        totalDirectBankDebits,
+        matchedTransactions: matched || [],
+        suspenseEntries: suspense || [],
+        brsSummary: brsSummary
+      },
+      { new: true, upsert: true }
+    );
+
+    res.status(200).json({ success: true, message: "BRS Saved Successfully.", data: statementDoc });
+
+  } catch (error) {
+    console.error("BRS Generation Error:", error);
+    res.status(500).json({ success: false, message: "Server error generating BRS." });
+  }
+};
+
+// ==========================================
+// NEW: FETCH SAVED STATEMENT BY PERIOD
+// ==========================================
+exports.getStatementByPeriod = async (req, res) => {
+  try {
+    const { financialYear, month } = req.query;
+    if (!financialYear || !month) return res.status(400).json({ success: false, message: "Financial Year and Month required." });
+
+    const statement = await BankStatement.findOne({ financialYear, month });
+    
+    if (statement) {
+      return res.status(200).json({ success: true, data: statement });
+    }
+    
+    return res.status(200).json({ success: true, data: null, message: "No statement found for this period. Please upload one." });
+  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };
