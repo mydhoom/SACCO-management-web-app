@@ -24,13 +24,23 @@ const extractCleanJSON = (text) => {
   }
 };
 
+// Helper to fix weird Excel Serial Dates
+const parseBankDate = (dateVal) => {
+  if (!dateVal) return "Unknown Date";
+  if (!isNaN(dateVal) && typeof dateVal === 'number') {
+    // Convert Excel serial number to JS Date
+    const jsDate = new Date(Math.round((dateVal - 25569) * 86400 * 1000));
+    return jsDate.toLocaleDateString('en-GB'); // Formats as DD/MM/YYYY
+  }
+  return String(dateVal).trim();
+};
+
 // ==========================================
 // TWO-TIER MATCHING LOGIC (1-to-1 & 1-to-Many)
 // ==========================================
 async function findInternalMatch(depositAmount, bankDate, aiModelName = "Local Engine") {
   const amount = Number(depositAmount);
   
-  // Tier 1: Direct 1-to-1 Match
   const singleMatch = await TransactionLog.findOne({
     amount: amount,
     status: 'PENDING_VERIFICATION',
@@ -45,7 +55,6 @@ async function findInternalMatch(depositAmount, bankDate, aiModelName = "Local E
     };
   }
 
-  // Tier 2: Batch / Clubbed Match (1-to-Many)
   let dDate;
   if (bankDate.includes('/')) {
     const [day, month, year] = bankDate.split('/');
@@ -70,8 +79,7 @@ async function findInternalMatch(depositAmount, bankDate, aiModelName = "Local E
   const validBatchMatch = pendingBatches.find(batch => {
     const uploadDate = new Date(batch.batchDate);
     const windowEnd = new Date(uploadDate);
-    windowEnd.setDate(windowEnd.getDate() + 4); // 4-Day Window Logic
-
+    windowEnd.setDate(windowEnd.getDate() + 4); 
     return dDate >= uploadDate && dDate <= windowEnd;
   });
 
@@ -100,7 +108,6 @@ exports.uploadBankStatement = async (req, res) => {
     let extractedData = [];
     let rawTextForAI = "";
 
-    // PARSE FILE
     if (fileType === 'application/pdf') {
       processingMode = 'AI';
       const pdfData = await pdfParse(fileBuffer);
@@ -110,7 +117,6 @@ exports.uploadBankStatement = async (req, res) => {
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
       
-      // DYNAMIC HEADER SCANNER
       const rawRows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: null });
       let headerRowIndex = 0; 
       
@@ -152,8 +158,9 @@ exports.uploadBankStatement = async (req, res) => {
         }
       });
 
+      // REMOVED 100-ROW LIMIT. Now sends the entire file to the AI.
       if (processingMode === 'AI') {
-        rawTextForAI = JSON.stringify(extractedData.slice(0, 100)); 
+        rawTextForAI = JSON.stringify(extractedData); 
       }
     }
 
@@ -188,9 +195,9 @@ exports.uploadBankStatement = async (req, res) => {
 async function runAIEngine(rawText) {
   const prompt = `
     You are a bank reconciliation assistant. Read the bank statement text. 
-    Extract deposits/credits into the account. Ignore withdrawals.
+    Extract ALL transactions (both deposits and withdrawals).
     Return STRICTLY a JSON object with a single key "transactions" containing an array of objects:
-    "date", "amount", "referenceNumber", "description", "suggestedType".
+    "date", "debit" (number, 0 if empty), "credit" (number, 0 if empty), "balance" (number, 0 if empty), "referenceNumber", "description", "suggestedType".
     Statement: ${rawText}
   `;
 
@@ -243,26 +250,50 @@ async function runAIEngine(rawText) {
   let suspense = [];
 
   await Promise.all(parsedAIResults.map(async (item) => {
-    if (!item.amount || isNaN(item.amount)) return;
+    const cleanDate = parseBankDate(item.date);
+    const creditAmt = Number(item.credit) || 0;
+    const debitAmt = Number(item.debit) || 0;
+    const balanceAmt = Number(item.balance) || 0;
 
-    const matchResult = await findInternalMatch(item.amount, item.date, successfulModel);
+    // If it is a deposit, check against database
+    if (creditAmt > 0) {
+      const matchResult = await findInternalMatch(creditAmt, cleanDate, successfulModel);
 
-    if (matchResult) {
-      matched.push({
-        systemTransactionId: matchResult.systemTransactionId,
-        bankDate: item.date,
-        bankDescription: item.description,
-        amount: Number(item.amount),
-        member: matchResult.member,
-        confidence: matchResult.confidence
-      });
-    } else {
+      if (matchResult) {
+        matched.push({
+          systemTransactionId: matchResult.systemTransactionId,
+          bankDate: cleanDate,
+          bankDescription: item.description,
+          credit: creditAmt,
+          debit: 0,
+          balance: balanceAmt,
+          member: matchResult.member,
+          confidence: matchResult.confidence,
+          status: 'MATCHED'
+        });
+      } else {
+        suspense.push({
+          bankDate: cleanDate,
+          bankDescription: item.description,
+          referenceNumber: item.referenceNumber,
+          credit: creditAmt,
+          debit: 0,
+          balance: balanceAmt,
+          suggestedType: item.suggestedType || "UNRECONCILED DEPOSIT",
+          status: 'UNRECONCILED'
+        });
+      }
+    } else if (debitAmt > 0) {
+      // If it is a withdrawal, send to frontend as a Bank Debit
       suspense.push({
-        bankDate: item.date,
-        bankDescription: item.description,
-        referenceNumber: item.referenceNumber,
-        amount: Number(item.amount),
-        suggestedType: item.suggestedType
+          bankDate: cleanDate,
+          bankDescription: item.description,
+          referenceNumber: item.referenceNumber,
+          credit: 0,
+          debit: debitAmt,
+          balance: balanceAmt,
+          suggestedType: "BANK DEBIT",
+          status: 'DEBIT'
       });
     }
   }));
@@ -286,29 +317,50 @@ async function runStandardEngine(excelData) {
       }
     }
 
-    const depositAmount = superCleanRow['depositamountinr'] || superCleanRow['depositamount'] || superCleanRow['credit'];
-    if (!depositAmount || depositAmount <= 0) return; 
+    const creditAmount = Number(superCleanRow['depositamountinr'] || superCleanRow['depositamount'] || superCleanRow['credit']) || 0;
+    const debitAmount = Number(superCleanRow['withdrawalamountinr'] || superCleanRow['withdrawalamount'] || superCleanRow['debit']) || 0;
+    const balanceAmount = Number(superCleanRow['balanceinr'] || superCleanRow['balance']) || 0;
 
-    const date = superCleanRow['transactiondate'] || superCleanRow['valuedate'] || superCleanRow['date'];
-    const remarks = superCleanRow['transactionremarks'] || superCleanRow['otherremarks'] || 'Unknown Deposit';
+    const rawDate = superCleanRow['transactiondate'] || superCleanRow['valuedate'] || superCleanRow['date'];
+    const cleanDate = parseBankDate(rawDate);
+    
+    const remarks = superCleanRow['transactionremarks'] || superCleanRow['otherremarks'] || 'Unknown Transaction';
 
-    const matchResult = await findInternalMatch(depositAmount, date, "Local Engine");
+    if (creditAmount > 0) {
+      const matchResult = await findInternalMatch(creditAmount, cleanDate, "Local Engine");
 
-    if (matchResult) {
-      matched.push({
-        systemTransactionId: matchResult.systemTransactionId,
-        bankDate: date,
-        bankDescription: remarks,
-        amount: Number(depositAmount),
-        member: matchResult.member,
-        confidence: matchResult.confidence
-      });
-    } else {
+      if (matchResult) {
+        matched.push({
+          systemTransactionId: matchResult.systemTransactionId,
+          bankDate: cleanDate,
+          bankDescription: remarks,
+          credit: creditAmount,
+          debit: 0,
+          balance: balanceAmount,
+          member: matchResult.member,
+          confidence: matchResult.confidence,
+          status: 'MATCHED'
+        });
+      } else {
+        suspense.push({
+          bankDate: cleanDate,
+          bankDescription: remarks,
+          credit: creditAmount,
+          debit: 0,
+          balance: balanceAmount,
+          suggestedType: "UNRECONCILED DEPOSIT",
+          status: 'UNRECONCILED'
+        });
+      }
+    } else if (debitAmount > 0) {
       suspense.push({
-        bankDate: date,
-        bankDescription: remarks,
-        amount: Number(depositAmount),
-        suggestedType: "UNKNOWN"
+          bankDate: cleanDate,
+          bankDescription: remarks,
+          credit: 0,
+          debit: debitAmount,
+          balance: balanceAmount,
+          suggestedType: "BANK DEBIT",
+          status: 'DEBIT'
       });
     }
   }));
@@ -340,6 +392,9 @@ exports.approveReconciliation = async (req, res) => {
       const systemUser = await User.findOne({ role: 'ADMIN' }) || await User.findOne();
 
       for (const item of suspenseDeposits) {
+        // Skip actual bank withdrawals (we only reconcile incoming money)
+        if (item.status === 'DEBIT') continue;
+
         const suspenseEntries = [
           {
             vendorNo: 'SYS-SUSPENSE', 
@@ -347,7 +402,7 @@ exports.approveReconciliation = async (req, res) => {
             memberId: systemUser ? systemUser._id : null,
             ledgerFolio: '101',
             category: 'BANK_RECEIPT',
-            amount: item.amount,
+            amount: item.credit, // Now mapping to credit
             entryType: 'DEBIT',
             paymentMode: 'BANK_TRANSFER',
             transactionDate: item.bankDate ? new Date(item.bankDate) : new Date(),
@@ -359,7 +414,7 @@ exports.approveReconciliation = async (req, res) => {
             memberId: systemUser ? systemUser._id : null,
             ledgerFolio: '999',
             category: 'SUSPENSE_CLEARING',
-            amount: item.amount,
+            amount: item.credit,
             entryType: 'CREDIT',
             paymentMode: 'INTERNAL_TRANSFER',
             transactionDate: item.bankDate ? new Date(item.bankDate) : new Date(),
