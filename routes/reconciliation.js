@@ -12,5 +12,7 @@ router.post('/approve', reconciliationController.approveReconciliation);
 router.get('/period', reconciliationController.getStatementByPeriod);
 router.post('/save-brs', reconciliationController.saveAndGenerateBRS);
 router.get('/yearly', reconciliationController.getYearlyStatement);
+// Add this line with your other routes:
+router.delete('/period', reconciliationController.deleteStatementByPeriod);
 
 module.exports = router;

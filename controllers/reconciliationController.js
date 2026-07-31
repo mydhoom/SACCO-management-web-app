@@ -677,3 +677,22 @@ exports.getYearlyStatement = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+// ==========================================
+// NEW: DELETE BRS STATEMENT (RESET CAPABILITY)
+// ==========================================
+exports.deleteStatementByPeriod = async (req, res) => {
+  try {
+    const { financialYear, month } = req.query;
+    if (!financialYear || !month) return res.status(400).json({ success: false, message: "Financial Year and Month required." });
+
+    const deletedStatement = await BankStatement.findOneAndDelete({ financialYear, month });
+    
+    if (deletedStatement) {
+      return res.status(200).json({ success: true, message: `Statement for ${month} deleted successfully.` });
+    }
+    
+    return res.status(404).json({ success: false, message: "Statement not found." });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
