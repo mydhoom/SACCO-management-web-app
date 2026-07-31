@@ -91,72 +91,58 @@ async function findInternalMatch(depositAmount, bankDate, aiModelName = "Local E
 // ==========================================
 // UPLOAD & ROUTING CONTROLLER
 // ==========================================
-exports.uploadBankStatement = async (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded." });
-
-    const fileBuffer = req.file.buffer;
-    const fileType = req.file.mimetype;
-    let processingMode = req.body.processingMode || 'STANDARD'; 
-
-    let extractedData = [];
-    let rawTextForAI = "";
-
-    // PARSE FILE
-    if (fileType === 'application/pdf') {
-      processingMode = 'AI';
-      const pdfData = await pdfParse(fileBuffer);
-      rawTextForAI = pdfData.text;
-    } else {
-      const workbook = xlsx.read(fileBuffer, { type: 'buffer' });
+const workbook = xlsx.read(fileBuffer, { type: 'buffer' });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
       
-      // Clean parsing (Skip 27 rows of bank metadata)
-      const rawData = xlsx.utils.sheet_to_json(sheet, { range: 27, defval: null });
+      // ==========================================
+      // NEW: DYNAMIC HEADER SCANNER
+      // ==========================================
+      // 1. Read the sheet as a raw 2D array to find where the table actually starts
+      const rawRows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: null });
+      let headerRowIndex = 0; 
+      
+      for (let i = 0; i < rawRows.length; i++) {
+        const row = rawRows[i];
+        if (row && Array.isArray(row)) {
+          // Check if this row contains 'S No.' or 'Deposit Amount'
+          const isHeaderRow = row.some(cell => {
+            if (!cell) return false;
+            const cleanCell = String(cell).toLowerCase().replace(/[^a-z0-9]/g, '');
+            return cleanCell === 'sno' || cleanCell.includes('depositamount');
+          });
+          
+          if (isHeaderRow) {
+            headerRowIndex = i; // We found the exact row the bank table starts on!
+            break;
+          }
+        }
+      }
+
+      // 2. Extract data starting EXACTLY from the dynamically found header row
+      const rawData = xlsx.utils.sheet_to_json(sheet, { range: headerRowIndex, defval: null });
       
       rawData.forEach((row) => {
         let cleanRow = {};
+        let sNoValue = null;
+        
         for (let key in row) {
           if (key && !key.toString().startsWith('__EMPTY')) {
             cleanRow[key.toString().trim()] = row[key];
+            
+            // Forgiving check for the Serial Number column (ignores spacing/dots)
+            const cleanKey = key.toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (cleanKey === 'sno' || cleanKey === 'srno' || cleanKey === 'serialno') {
+              sNoValue = row[key];
+            }
           }
         }
-        const sNo = cleanRow['S No.'];
-        if (sNo !== null && sNo !== undefined && String(sNo).trim() !== '' && !isNaN(Number(sNo))) {
+        
+        // 3. Only keep rows that have a valid numeric serial number (skips bank footers/totals)
+        if (sNoValue !== null && sNoValue !== undefined && String(sNoValue).trim() !== '' && !isNaN(Number(sNoValue))) {
           extractedData.push(cleanRow);
         }
       });
-
-      if (processingMode === 'AI') {
-        rawTextForAI = JSON.stringify(extractedData.slice(0, 100)); 
-      }
-    }
-
-    let reconciliationResults = { matched: [], suspense: [] };
-
-    if (processingMode === 'AI') {
-      try {
-        reconciliationResults = await runAIEngine(rawTextForAI);
-      } catch (error) {
-        console.warn("⚠️ ALL AI MODELS FAILED. Falling back to Local Standard Engine.");
-        reconciliationResults = await runStandardEngine(extractedData);
-      }
-    } else {
-      reconciliationResults = await runStandardEngine(extractedData);
-    }
-
-    res.status(200).json({
-      success: true,
-      message: `Statement processed successfully.`,
-      data: reconciliationResults
-    });
-
-  } catch (error) {
-    console.error("Reconciliation Error:", error);
-    res.status(500).json({ success: false, message: "Server error during file processing." });
-  }
-};
 
 // ==========================================
 // ENGINE 1: MULTI-MODEL AI CASCADE
