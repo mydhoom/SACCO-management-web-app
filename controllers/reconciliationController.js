@@ -147,7 +147,6 @@ exports.uploadBankStatement = async (req, res) => {
 
         if (rowStr.length === 0) return;
 
-        // FIX: STRICT EXCLUSION - If the row contains a Date format, SKIP IT instantly.
         if (rowStr.match(/\d{2}[\/\-]\d{2}[\/\-]\d{4}/)) return;
 
         if ((lowerStr.includes('account no') || lowerStr.includes('a/c no')) && metadata.accountNo === "Not Found") {
@@ -217,9 +216,7 @@ exports.uploadBankStatement = async (req, res) => {
     } else {
       reconciliationResults = await runStandardEngine(extractedData);
     }
-// ==========================================
-    // FIX: EXTRACT TRUE CLOSING BALANCE FROM RAW DATA
-    // ==========================================
+
     let trueClosingBalance = 0;
     if (extractedData.length > 0) {
       for (let i = extractedData.length - 1; i >= 0; i--) {
@@ -235,14 +232,13 @@ exports.uploadBankStatement = async (req, res) => {
       }
     }
 
-    // PURGE ALL TRANSACTIONS OUTSIDE SELECTED MONTH
     reconciliationResults.matched = reconciliationResults.matched.filter(item => isDateInPeriod(item.bankDate, month, financialYear));
     reconciliationResults.suspense = reconciliationResults.suspense.filter(item => isDateInPeriod(item.bankDate, month, financialYear));
 
     res.status(200).json({
       success: true,
       message: `Statement processed successfully for ${month} ${financialYear}.`,
-      data: { ...reconciliationResults, metadata, trueClosingBalance } // Passed safely to frontend
+      data: { ...reconciliationResults, metadata, trueClosingBalance }
     });
 
   } catch (error) {
@@ -524,7 +520,7 @@ exports.saveAndGenerateBRS = async (req, res) => {
 
     const validBalances = (suspense || []).map(s => Number(s.balance)).filter(b => !isNaN(b) && b > 0);
     const calculatedClosingBalance = validBalances.length > 0 ? validBalances[validBalances.length - 1] : 0;
-    const closingBankBalance = closingBalance || calculatedClosingBalance;
+    const closingBankBalance = closingBalance !== undefined && closingBalance !== 0 ? closingBalance : calculatedClosingBalance;
 
     const systemCashBookBalance = closingBankBalance - totalUnidentifiedDeposits - totalUnclearedPayments + totalDirectBankDebits + totalUnclearedReceipts;
 
@@ -577,6 +573,73 @@ exports.getStatementByPeriod = async (req, res) => {
     }
     
     return res.status(200).json({ success: true, data: null, message: "No statement found for this period. Please upload one." });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ==========================================
+// YEARLY CONSOLIDATION ENGINE
+// ==========================================
+exports.getYearlyStatement = async (req, res) => {
+  try {
+    const { financialYear } = req.query;
+    if (!financialYear) return res.status(400).json({ success: false, message: "Financial Year required." });
+
+    const statements = await BankStatement.find({ financialYear });
+    if (!statements || statements.length === 0) {
+      return res.status(200).json({ success: true, data: null, message: "No saved statements found for this financial year." });
+    }
+
+    const monthOrder = ['April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'January', 'February', 'March'];
+    statements.sort((a, b) => monthOrder.indexOf(a.month) - monthOrder.indexOf(b.month));
+
+    let consolidatedMatched = [];
+    let consolidatedSuspense = [];
+    let totalUnidentifiedDeposits = 0;
+    let totalDirectBankDebits = 0;
+    let totalUnclearedPayments = 0;
+    let totalUnclearedReceipts = 0;
+
+    const closingBankBalance = statements[statements.length - 1].closingBankBalance;
+
+    statements.forEach(st => {
+      consolidatedMatched.push(...(st.matchedTransactions || []));
+      consolidatedSuspense.push(...(st.suspenseEntries || []));
+      totalUnidentifiedDeposits += (st.totalUnidentifiedDeposits || 0);
+      totalDirectBankDebits += (st.totalDirectBankDebits || 0);
+      totalUnclearedPayments += (st.brsSummary?.totalUnclearedPayments || 0);
+      totalUnclearedReceipts += (st.brsSummary?.totalUnclearedReceipts || 0);
+    });
+
+    const systemCashBookBalance = closingBankBalance - totalUnidentifiedDeposits - totalUnclearedPayments + totalDirectBankDebits + totalUnclearedReceipts;
+
+    const yearlyDoc = {
+      financialYear,
+      month: 'Full Financial Year',
+      bankName: statements[0].bankName,
+      accountNumber: statements[0].accountNumber,
+      statementPeriod: `Financial Year ${financialYear}`,
+      closingBankBalance,
+      totalUnidentifiedDeposits,
+      totalDirectBankDebits,
+      matchedTransactions: consolidatedMatched,
+      suspenseEntries: consolidatedSuspense,
+      brsSummary: {
+        systemCashBookBalance,
+        totalUnidentifiedDeposits,
+        totalUnclearedPayments,
+        totalDirectBankDebits,
+        totalUnclearedReceipts,
+        closingBankBalance,
+        unclearedReceiptsDetails: [],
+        unclearedPaymentsDetails: []
+      },
+      isYearly: true,
+      createdAt: statements[statements.length - 1].createdAt
+    };
+
+    return res.status(200).json({ success: true, data: yearlyDoc });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
