@@ -24,7 +24,6 @@ const extractCleanJSON = (text) => {
   }
 };
 
-// FIX: Normalise hyphens to slashes so parsing never breaks
 const parseBankDate = (dateVal) => {
   if (!dateVal) return "Unknown Date";
   if (!isNaN(dateVal) && typeof dateVal === 'number') {
@@ -34,7 +33,6 @@ const parseBankDate = (dateVal) => {
   return String(dateVal).trim().replace(/-/g, '/');
 };
 
-// FIX: Aggressive date-cleaning to ensure Excel hyphen-dates (03-04-2023) filter perfectly
 const isDateInPeriod = (dateStr, targetMonth, targetFY) => {
   if (!dateStr) return false;
   const cleanDate = String(dateStr).replace(/-/g, '/');
@@ -146,7 +144,6 @@ exports.uploadBankStatement = async (req, res) => {
       const rawRows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: null });
       let headerRowIndex = 0; 
       
-      // FIX: Extends scan scope and implements bulletproof garbage-rejection
       const topRows = rawRows.slice(0, 25);
       topRows.forEach(row => {
         if (!row || !Array.isArray(row)) return;
@@ -158,8 +155,6 @@ exports.uploadBankStatement = async (req, res) => {
         const lowerStr = rowStr.toLowerCase();
 
         if (rowStr.length === 0) return;
-
-        // Skip any row containing a date pattern instantly
         if (rowStr.match(/\d{2}[\/\-]\d{2}[\/\-]\d{4}/)) return;
 
         if ((lowerStr.includes('account no') || lowerStr.includes('a/c no')) && metadata.accountNo === "Not Found") {
@@ -170,7 +165,6 @@ exports.uploadBankStatement = async (req, res) => {
           metadata.statementPeriod = rowStr;
         }
         
-        // Block UTR, NEFT, and standard transaction remarks from becoming Bank Name
         if ((lowerStr.includes('bank') || lowerStr.includes('limited') || lowerStr.includes('ltd')) 
             && metadata.bankName === "Not Found" 
             && !lowerStr.includes('statement') 
@@ -240,18 +234,33 @@ exports.uploadBankStatement = async (req, res) => {
       reconciliationResults = await runStandardEngine(extractedData);
     }
 
-    // FIX: Reverse loop perfectly extracts absolute final balance before filtering
+    // ==========================================
+    // FIX: EXTRACT TRUE CLOSING BALANCE (STRICTLY FOR SELECTED MONTH)
+    // ==========================================
     let trueClosingBalance = 0;
     if (extractedData.length > 0) {
+      // Scan from the bottom of the uploaded file upwards
       for (let i = extractedData.length - 1; i >= 0; i--) {
         const cleanRow = {};
         for (const key in extractedData[i]) {
           if (key) cleanRow[key.toLowerCase().replace(/[^a-z0-9]/g, '')] = extractedData[i][key];
         }
-        const bal = Number(cleanRow['balanceinr'] || cleanRow['balance']);
-        if (bal && !isNaN(bal) && bal !== 0) {
-          trueClosingBalance = bal;
-          break;
+        
+        // Step 1: Identify the date of this specific row
+        const rawDate = cleanRow['transactiondate'] || cleanRow['valuedate'] || cleanRow['date'];
+        const cleanDate = parseBankDate(rawDate);
+        
+        // Step 2: ONLY extract the balance if this row belongs to the selected month!
+        if (isDateInPeriod(cleanDate, month, financialYear)) {
+            // Strip out any commas from the number (e.g., "1,71,251.65" -> 171251.65)
+            let rawBal = cleanRow['balanceinr'] || cleanRow['balance'];
+            if (typeof rawBal === 'string') rawBal = rawBal.replace(/,/g, '');
+            const bal = Number(rawBal);
+            
+            if (bal && !isNaN(bal) && bal !== 0) {
+              trueClosingBalance = bal;
+              break; // Stop looking! We found the absolute last balance for the selected month.
+            }
         }
       }
     }
@@ -523,8 +532,12 @@ exports.saveAndGenerateBRS = async (req, res) => {
     pendingSystemTx.forEach(tx => {
       if (matchedIds.includes(tx.transactionId)) return; 
       
+      // FIX: Filter pending system journal entries strictly to the selected month & FY
+      const txDateStr = tx.transactionDate ? tx.transactionDate.toLocaleDateString('en-GB') : '';
+      if (!isDateInPeriod(txDateStr, month, financialYear)) return;
+
       const txData = {
-        date: tx.transactionDate.toLocaleDateString('en-GB'),
+        date: txDateStr,
         description: tx.description || tx.category,
         amount: tx.amount,
         transactionId: tx.transactionId,
@@ -601,9 +614,6 @@ exports.getStatementByPeriod = async (req, res) => {
   }
 };
 
-// ==========================================
-// YEARLY CONSOLIDATION ENGINE
-// ==========================================
 exports.getYearlyStatement = async (req, res) => {
   try {
     const { financialYear } = req.query;
