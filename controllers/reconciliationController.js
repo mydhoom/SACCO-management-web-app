@@ -46,8 +46,6 @@ async function findInternalMatch(depositAmount, bankDate, aiModelName = "Local E
   }
 
   // Tier 2: Batch / Clubbed Match (1-to-Many)
-  // Reconstruct bank date carefully for window comparison
-  // Handles typical Indian bank date formats (DD/MM/YYYY)
   let dDate;
   if (bankDate.includes('/')) {
     const [day, month, year] = bankDate.split('/');
@@ -79,74 +77,15 @@ async function findInternalMatch(depositAmount, bankDate, aiModelName = "Local E
 
   if (validBatchMatch) {
     return {
-      systemTransactionId: validBatchMatch._id, // Returns e.g. HO01-20260730-F101
+      systemTransactionId: validBatchMatch._id,
       member: `Batch of ${validBatchMatch.count} Payments`,
       confidence: `HIGH - Batch Match [1-to-4 Day Window] (${aiModelName})`
     };
   }
 
-  return null; // No match found -> goes to Suspense
+  return null; 
 }
 
-// ==========================================
-// UPLOAD & ROUTING CONTROLLER
-// ==========================================
-const workbook = xlsx.read(fileBuffer, { type: 'buffer' });
-      const sheetName = workbook.SheetNames[0];
-      const sheet = workbook.Sheets[sheetName];
-      
-      // ==========================================
-      // NEW: DYNAMIC HEADER SCANNER
-      // ==========================================
-      // 1. Read the sheet as a raw 2D array to find where the table actually starts
-      const rawRows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: null });
-      let headerRowIndex = 0; 
-      
-      for (let i = 0; i < rawRows.length; i++) {
-        const row = rawRows[i];
-        if (row && Array.isArray(row)) {
-          // Check if this row contains 'S No.' or 'Deposit Amount'
-          const isHeaderRow = row.some(cell => {
-            if (!cell) return false;
-            const cleanCell = String(cell).toLowerCase().replace(/[^a-z0-9]/g, '');
-            return cleanCell === 'sno' || cleanCell.includes('depositamount');
-          });
-          
-          if (isHeaderRow) {
-            headerRowIndex = i; // We found the exact row the bank table starts on!
-            break;
-          }
-        }
-      }
-
-      // 2. Extract data starting EXACTLY from the dynamically found header row
-      const rawData = xlsx.utils.sheet_to_json(sheet, { range: headerRowIndex, defval: null });
-      
-      rawData.forEach((row) => {
-        let cleanRow = {};
-        let sNoValue = null;
-        
-        for (let key in row) {
-          if (key && !key.toString().startsWith('__EMPTY')) {
-            cleanRow[key.toString().trim()] = row[key];
-            
-            // Forgiving check for the Serial Number column (ignores spacing/dots)
-            const cleanKey = key.toString().toLowerCase().replace(/[^a-z0-9]/g, '');
-            if (cleanKey === 'sno' || cleanKey === 'srno' || cleanKey === 'serialno') {
-              sNoValue = row[key];
-            }
-          }
-        }
-        
-        // 3. Only keep rows that have a valid numeric serial number (skips bank footers/totals)
-        if (sNoValue !== null && sNoValue !== undefined && String(sNoValue).trim() !== '' && !isNaN(Number(sNoValue))) {
-          extractedData.push(cleanRow);
-        }
-      });
-
-// ==========================================
-// ENGINE 1: MULTI-MODEL AI CASCADE
-// ==========================================
 // ==========================================
 // UPLOAD & ROUTING CONTROLLER
 // ==========================================
@@ -171,9 +110,7 @@ exports.uploadBankStatement = async (req, res) => {
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
       
-      // ==========================================
-      // NEW: DYNAMIC HEADER SCANNER
-      // ==========================================
+      // DYNAMIC HEADER SCANNER
       const rawRows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: null });
       let headerRowIndex = 0; 
       
@@ -187,7 +124,7 @@ exports.uploadBankStatement = async (req, res) => {
           });
           
           if (isHeaderRow) {
-            headerRowIndex = i; // Found the exact row the headers start!
+            headerRowIndex = i; 
             break;
           }
         }
@@ -210,7 +147,6 @@ exports.uploadBankStatement = async (req, res) => {
           }
         }
         
-        // Skip footers/empty rows
         if (sNoValue !== null && sNoValue !== undefined && String(sNoValue).trim() !== '' && !isNaN(Number(sNoValue))) {
           extractedData.push(cleanRow);
         }
@@ -247,6 +183,94 @@ exports.uploadBankStatement = async (req, res) => {
 };
 
 // ==========================================
+// ENGINE 1: MULTI-MODEL AI CASCADE
+// ==========================================
+async function runAIEngine(rawText) {
+  const prompt = `
+    You are a bank reconciliation assistant. Read the bank statement text. 
+    Extract deposits/credits into the account. Ignore withdrawals.
+    Return STRICTLY a JSON object with a single key "transactions" containing an array of objects:
+    "date", "amount", "referenceNumber", "description", "suggestedType".
+    Statement: ${rawText}
+  `;
+
+  let parsedAIResults = null;
+  let successfulModel = "";
+
+  const aiCascade = [
+    { provider: 'groq', model: 'llama-3.3-70b-versatile', name: 'Groq Advanced' },
+    { provider: 'groq', model: 'llama-3.1-8b-instant', name: 'Groq Standard' },
+    { provider: 'gemini', model: 'gemini-1.5-pro', name: 'Gemini Advanced' },
+    { provider: 'gemini', model: 'gemini-1.5-flash', name: 'Gemini Standard' }
+  ];
+
+  for (const aiStep of aiCascade) {
+    try {
+      console.log(`[AI Cascade] Attempting: ${aiStep.name}...`);
+      if (aiStep.provider === 'groq') {
+        const response = await groq.chat.completions.create({
+          model: aiStep.model,
+          messages: [
+            { role: 'system', content: 'You strictly output valid JSON objects.' },
+            { role: 'user', content: prompt }
+          ],
+          response_format: { type: 'json_object' }
+        });
+        parsedAIResults = JSON.parse(response.choices[0].message.content).transactions;
+      } else {
+        const response = await ai.models.generateContent({
+          model: aiStep.model,
+          contents: prompt
+        });
+        const rawJson = extractCleanJSON(response.text);
+        parsedAIResults = Array.isArray(rawJson) ? rawJson : (rawJson.transactions || []);
+      }
+      
+      if (parsedAIResults && Array.isArray(parsedAIResults)) {
+        successfulModel = aiStep.name;
+        break; 
+      }
+    } catch (error) {
+      console.warn(`[WARNING] ${aiStep.name} failed. Moving to next...`);
+    }
+  }
+
+  if (!parsedAIResults || parsedAIResults.length === 0) {
+    throw new Error("All AI models failed.");
+  }
+
+  let matched = [];
+  let suspense = [];
+
+  await Promise.all(parsedAIResults.map(async (item) => {
+    if (!item.amount || isNaN(item.amount)) return;
+
+    const matchResult = await findInternalMatch(item.amount, item.date, successfulModel);
+
+    if (matchResult) {
+      matched.push({
+        systemTransactionId: matchResult.systemTransactionId,
+        bankDate: item.date,
+        bankDescription: item.description,
+        amount: Number(item.amount),
+        member: matchResult.member,
+        confidence: matchResult.confidence
+      });
+    } else {
+      suspense.push({
+        bankDate: item.date,
+        bankDescription: item.description,
+        referenceNumber: item.referenceNumber,
+        amount: Number(item.amount),
+        suggestedType: item.suggestedType
+      });
+    }
+  }));
+
+  return { matched, suspense };
+}
+
+// ==========================================
 // ENGINE 2: BULLETPROOF STANDARD MATCHER
 // ==========================================
 async function runStandardEngine(excelData) {
@@ -257,7 +281,6 @@ async function runStandardEngine(excelData) {
     const superCleanRow = {};
     for (const key in row) {
       if (key) {
-        // Bulletproof header normalization
         const cleanKey = key.toLowerCase().replace(/[^a-z0-9]/g, ''); 
         superCleanRow[cleanKey] = row[key];
       }
@@ -300,8 +323,6 @@ exports.approveReconciliation = async (req, res) => {
   try {
     const { matchedTransactions, suspenseDeposits } = req.body;
 
-    // 1. CLEAR MATCHED TRANSACTIONS & BATCHES
-    // Handles both single transaction IDs and batchIds simultaneously
     if (matchedTransactions && matchedTransactions.length > 0) {
       await TransactionLog.updateMany(
         { 
@@ -315,7 +336,6 @@ exports.approveReconciliation = async (req, res) => {
       );
     }
 
-    // 2. ROUTE UNKNOWN FUNDS TO SUSPENSE (Folio 101 & 999)
     if (suspenseDeposits && suspenseDeposits.length > 0) {
       const systemUser = await User.findOne({ role: 'ADMIN' }) || await User.findOne();
 
