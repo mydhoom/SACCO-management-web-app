@@ -217,14 +217,32 @@ exports.uploadBankStatement = async (req, res) => {
     } else {
       reconciliationResults = await runStandardEngine(extractedData);
     }
+// ==========================================
+    // FIX: EXTRACT TRUE CLOSING BALANCE FROM RAW DATA
+    // ==========================================
+    let trueClosingBalance = 0;
+    if (extractedData.length > 0) {
+      for (let i = extractedData.length - 1; i >= 0; i--) {
+        const cleanRow = {};
+        for (const key in extractedData[i]) {
+          if (key) cleanRow[key.toLowerCase().replace(/[^a-z0-9]/g, '')] = extractedData[i][key];
+        }
+        const bal = Number(cleanRow['balanceinr'] || cleanRow['balance']);
+        if (bal && !isNaN(bal) && bal !== 0) {
+          trueClosingBalance = bal;
+          break;
+        }
+      }
+    }
 
+    // PURGE ALL TRANSACTIONS OUTSIDE SELECTED MONTH
     reconciliationResults.matched = reconciliationResults.matched.filter(item => isDateInPeriod(item.bankDate, month, financialYear));
     reconciliationResults.suspense = reconciliationResults.suspense.filter(item => isDateInPeriod(item.bankDate, month, financialYear));
 
     res.status(200).json({
       success: true,
       message: `Statement processed successfully for ${month} ${financialYear}.`,
-      data: { ...reconciliationResults, metadata }
+      data: { ...reconciliationResults, metadata, trueClosingBalance } // Passed safely to frontend
     });
 
   } catch (error) {
