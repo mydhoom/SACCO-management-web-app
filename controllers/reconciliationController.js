@@ -107,6 +107,9 @@ exports.uploadBankStatement = async (req, res) => {
 
     let extractedData = [];
     let rawTextForAI = "";
+    
+    // FIX: Moved metadata to the top so the entire function can see it!
+    let metadata = { bankName: "Not Found", accountNo: "Not Found", statementPeriod: "Not Found" };
 
     if (fileType === 'application/pdf') {
       processingMode = 'AI';
@@ -118,12 +121,10 @@ exports.uploadBankStatement = async (req, res) => {
       const sheet = workbook.Sheets[sheetName];
       
       // ==========================================
-      // NEW: METADATA PRE-SCANNER
+      // METADATA PRE-SCANNER
       // ==========================================
       const rawRows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: null });
       let headerRowIndex = 0; 
-      
-      let metadata = { bankName: "Not Found", accountNo: "Not Found", statementPeriod: "Not Found" };
       
       // Scan only the top 30 rows for bank metadata before the table starts
       const topRows = rawRows.slice(0, 30);
@@ -188,7 +189,7 @@ exports.uploadBankStatement = async (req, res) => {
         }
       });
 
-      // REMOVED 100-ROW LIMIT. Now sends the entire file to the AI.
+      // Removed 100-row limit for AI
       if (processingMode === 'AI') {
         rawTextForAI = JSON.stringify(extractedData); 
       }
