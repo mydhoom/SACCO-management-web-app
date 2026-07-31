@@ -189,8 +189,8 @@ exports.applyForLoan = async (req, res) => {
 };
 
 const PENALTY_CONFIG = {
-  applyPenalty: true,       
-  type: 'FLAT',             
+  applyPenalty: true,        
+  type: 'FLAT',            
   flatAmount: 200,          
   percentageRate: 0.02      
 };
@@ -219,7 +219,7 @@ exports.processEMI = async (req, res) => {
     loanTransactions.forEach(trx => {
       if (trx.entryType === 'DEBIT') {
         outstandingPrincipal += trx.amount; 
-      } else if (trx.entryType === 'CREDIT' && trx.category === 'LOAN_REPAYMENT') {
+      } else if (trx.entryType === 'CREDIT' && (trx.category === 'LOAN_REPAYMENT' || trx.category === 'CONTRA_ADJUSTMENT')) {
         outstandingPrincipal -= trx.amount; 
       }
     });
@@ -309,7 +309,7 @@ exports.processEMI = async (req, res) => {
     if (penaltyAmount > 0) {
       newTransactions.push({
         ...baseTx,
-        ledgerFolio: LOAN_PRINCIPAL_FOLIO, // Keeping your original Folio mapping
+        ledgerFolio: LOAN_PRINCIPAL_FOLIO, 
         category: 'PENALTY',
         amount: penaltyAmount,
         entryType: 'CREDIT', 
@@ -354,7 +354,7 @@ exports.processEMI = async (req, res) => {
 };
 
 // ==========================================
-// NEW DASHBOARD CONTROLLERS (Add to bottom)
+// NEW DASHBOARD CONTROLLERS 
 // ==========================================
 
 exports.getPendingTransactions = async (req, res) => {
@@ -395,7 +395,7 @@ exports.approvePendingTransaction = async (req, res) => {
     let outstandingPrincipal = 0;
     loanTransactions.forEach(trx => {
       if (trx.entryType === 'DEBIT') outstandingPrincipal += trx.amount; 
-      else if (trx.entryType === 'CREDIT' && trx.category === 'LOAN_REPAYMENT') outstandingPrincipal -= trx.amount; 
+      else if (trx.entryType === 'CREDIT' && (trx.category === 'LOAN_REPAYMENT' || trx.category === 'CONTRA_ADJUSTMENT')) outstandingPrincipal -= trx.amount; 
     });
 
     let loanClosed = false;
@@ -427,5 +427,140 @@ exports.getMyLoanStatement = async (req, res) => {
   } catch (error) {
     console.error("Error fetching member loan:", error);
     res.status(500).json({ success: false, message: "Failed to fetch your loan statement." });
+  }
+};
+
+// ==========================================
+// NEW: SETTLE LOAN VIA RD OR SHARE BALANCE
+// ==========================================
+exports.settleLoanWithSavings = async (req, res) => {
+  try {
+    const { loanId, vendorNo, settlementSource, amountToAdjust } = req.body; 
+    // settlementSource can be 'RD_BALANCE' or 'SHARE_CAPITAL'
+
+    if (!loanId || !vendorNo || !settlementSource || !amountToAdjust || Number(amountToAdjust) <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid payload parameters provided." });
+    }
+
+    const numericAmount = Number(amountToAdjust);
+
+    // 1. Fetch User and Loan records
+    const user = await User.findOne({ vendorNo });
+    const loan = await Loan.findOne({ loanId, vendorNo });
+
+    if (!user || !loan) {
+      return res.status(404).json({ success: false, message: "User or Loan record not found." });
+    }
+
+    if (loan.status === 'CLOSED') {
+      return res.status(400).json({ success: false, message: "This loan is already closed." });
+    }
+
+    // 2. Validate available balance based on source
+    let currentSourceBalance = 0;
+    if (settlementSource === 'RD_BALANCE') {
+      currentSourceBalance = user.rdBalance || 0; 
+    } else if (settlementSource === 'SHARE_CAPITAL') {
+      currentSourceBalance = user.currentShareMoneyTotal || 0;
+    } else {
+      return res.status(400).json({ success: false, message: "Invalid settlement source selected." });
+    }
+
+    if (numericAmount > currentSourceBalance) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Insufficient balance. Member only has ₹${currentSourceBalance} in ${settlementSource === 'RD_BALANCE' ? 'Recurring Deposit' : 'Share Capital'}.` 
+      });
+    }
+
+    // 3. Calculate exact outstanding principal from TransactionLog (Folio 152)
+    const loanTransactions = await TransactionLog.find({ 
+      vendorNo: vendorNo, 
+      ledgerFolio: '152', 
+      status: 'COMPLETED' 
+    });
+
+    let outstandingPrincipal = 0;
+    loanTransactions.forEach(trx => {
+      if (trx.entryType === 'DEBIT') {
+        outstandingPrincipal += trx.amount; 
+      } else if (trx.entryType === 'CREDIT' && (trx.category === 'LOAN_REPAYMENT' || trx.category === 'CONTRA_ADJUSTMENT')) {
+        outstandingPrincipal -= trx.amount; 
+      }
+    });
+
+    if (numericAmount > outstandingPrincipal) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Adjustment amount (₹${numericAmount}) exceeds remaining loan principal (₹${outstandingPrincipal}).` 
+      });
+    }
+
+    const batchId = `CONTRA-${uuidv4()}`;
+    const savingsFolio = settlementSource === 'SHARE_CAPITAL' ? '155' : '154'; // 155 = Share Capital, 154 = RD
+    const memberName = user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Unknown Member';
+
+    // 4. Prepare Double-Entry Transactions
+    // DEBIT: Reducing Member Savings/Shares liability (Liability account goes down via Debit)
+    // CREDIT: Reducing Loan Principal asset (Asset account goes down via Credit)
+    const contraTransactions = [
+      {
+        vendorNo: user.vendorNo,
+        memberName: memberName,
+        ledgerFolio: savingsFolio,
+        memberId: user._id,
+        category: settlementSource === 'SHARE_CAPITAL' ? 'SHARE_LOAN_OFFSET' : 'RD_LOAN_OFFSET',
+        amount: numericAmount,
+        entryType: 'DEBIT',
+        paymentMode: 'CONTRA_ADJUSTMENT',
+        transactionId: `CONTRA-DR-${uuidv4()}`,
+        status: 'COMPLETED',
+        batchId: batchId
+      },
+      {
+        vendorNo: user.vendorNo,
+        memberName: memberName,
+        ledgerFolio: '152', // Loan Principal Folio
+        memberId: user._id,
+        category: 'CONTRA_ADJUSTMENT',
+        amount: numericAmount,
+        entryType: 'CREDIT',
+        paymentMode: 'CONTRA_ADJUSTMENT',
+        transactionId: `CONTRA-CR-${uuidv4()}`,
+        status: 'COMPLETED',
+        relatedLoanId: loan._id,
+        batchId: batchId
+      }
+    ];
+
+    // Execute via Ledger Enforcer
+    await LedgerService.executeDoubleEntry(contraTransactions, `Loan ${loanId} settled using ${settlementSource.replace('_', ' ')}`);
+
+    // 5. Update User Balance
+    if (settlementSource === 'RD_BALANCE') {
+      user.rdBalance -= numericAmount;
+    } else {
+      user.currentShareMoneyTotal -= numericAmount;
+    }
+    await user.save();
+
+    // 6. Check if fully closed
+    const newOutstanding = parseFloat((outstandingPrincipal - numericAmount).toFixed(2));
+    let isFullyClosed = false;
+    if (newOutstanding <= 0) {
+      loan.status = 'CLOSED';
+      await loan.save();
+      isFullyClosed = true;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully offset ₹${numericAmount} from ${settlementSource.replace('_', ' ')}. ${isFullyClosed ? 'Loan has been fully closed.' : ''}`,
+      data: { remainingLoanBalance: newOutstanding, loanStatus: loan.status }
+    });
+
+  } catch (error) {
+    console.error("Loan Settlement Error:", error);
+    res.status(500).json({ success: false, message: error.message || "Server error processing loan offset." });
   }
 };
