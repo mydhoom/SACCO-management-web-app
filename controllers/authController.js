@@ -276,8 +276,14 @@ const systemInitialization = async (req, res) => {
           division: row['Division'] || '',
           subDivision: row['Sub_Division'] || '',
           section: row['Section'] || '',
-          shareBalance: Number(row['Opening_Share_Balance']) || 0,
+
+          // --- UPDATED TO MATCH YOUR EXACT SCHEMA ---
+          currentShareMoneyTotal: Number(row['Opening_Share_Balance']) || 0,
           rdBalance: Number(row['Opening_RD_Balance']) || 0,
+          monthlyRDAmount: Number(row['Monthly_RD_Amount']) || 0,
+          pendingLoanBalance: Number(row['Opening_Principal_Pending']) || 0, 
+          monthlyEmiAmount: Number(row['Current_EMI_Amount']) || 0,
+
           role: 'member',
           password: 'DefaultPassword123!', 
           status: 'APPROVED'
@@ -285,8 +291,12 @@ const systemInitialization = async (req, res) => {
         await user.save();
         usersCreated++;
       } else {
-        user.shareBalance = Number(row['Opening_Share_Balance']) || 0;
-        user.rdBalance = Number(row['Opening_RD_Balance']) || 0;
+        // --- UPDATED TO MATCH YOUR EXACT SCHEMA ---
+        user.currentShareMoneyTotal = Number(row['Opening_Share_Balance']) || user.currentShareMoneyTotal;
+        user.rdBalance = Number(row['Opening_RD_Balance']) || user.rdBalance;
+        user.monthlyRDAmount = Number(row['Monthly_RD_Amount']) || user.monthlyRDAmount;
+        user.pendingLoanBalance = Number(row['Opening_Principal_Pending']) || user.pendingLoanBalance;
+        user.monthlyEmiAmount = Number(row['Current_EMI_Amount']) || user.monthlyEmiAmount;
         await user.save();
       }
 

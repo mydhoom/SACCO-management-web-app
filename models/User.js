@@ -30,6 +30,8 @@ const userSchema = new mongoose.Schema({
   // --- 5. Financial Details ---
   currentShareMoneyTotal: { type: Number, default: 0 },
   dividends: { type: Number, default: 0 },
+  rdBalance: { type: Number, default: 0 },
+  monthlyRDAmount: { type: Number, default: 0 },
   
   // --- 6. Loan & EMI Tracking ---
   activeLoanAmount: { type: Number, default: 0 },

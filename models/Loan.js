@@ -40,6 +40,11 @@ const loanSchema = new mongoose.Schema({
     type: Date, 
     required: true 
   },
+  // ADD THIS NEW FIELD:
+  interestPending: { 
+    type: Number, 
+    default: 0 
+  },
   status: { 
     type: String, 
     enum: ["PENDING", "APPROVED", "REJECTED", "REPAID", "CLOSED"], // <-- Added CLOSED for full settlements
