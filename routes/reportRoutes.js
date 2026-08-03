@@ -1,9 +1,8 @@
-const express = require("express");
-const { authenticate, authorize } = require("../middlewares/authMiddleware");
-const { generateReport } = require("../controllers/reportController");
-
+const express = require('express');
 const router = express.Router();
+const reportController = require('../controllers/reportController');
 
-router.get("/", authenticate, authorize(["admin"]), generateReport);
+// Route to generate the Master Cashbook
+router.get('/cashbook', reportController.generateCashbook);
 
 module.exports = router;
