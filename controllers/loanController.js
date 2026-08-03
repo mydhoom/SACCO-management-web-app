@@ -1,7 +1,7 @@
 const Loan = require("../models/Loan");
 const TransactionLog = require('../models/TransactionLog');
 const User = require('../models/User'); 
-const LedgerService = require('../services/LedgerService'); // NEW: Import the Enforcer
+const LedgerService = require('../services/LedgerService'); 
 const { v4: uuidv4 } = require("uuid");
 
 exports.requestLoan = async (req, res) => {
@@ -83,12 +83,11 @@ exports.updateLoanStatus = async (req, res) => {
       const exactVendorNo = fetchedUser && fetchedUser.vendorNo ? fetchedUser.vendorNo : "SYS-LOAN-AUTO";
       const exactMemberName = fetchedUser ? (fetchedUser.name || `${fetchedUser.firstName || ''} ${fetchedUser.lastName || ''}`.trim() || 'Unknown Member') : "System Auto";
 
-      // Array prepared for the LedgerService
       const transactionsToLog = [
         {
           vendorNo: exactVendorNo,
           memberName: exactMemberName, 
-          ledgerFolio: '152', // LedgerService uses 'folio' instead of 'ledgerFolio'
+          ledgerFolio: '152', 
           memberId: loan.memberId,
           category: "LOAN_DISBURSEMENT",
           amount: grossAmount,
@@ -123,13 +122,12 @@ exports.updateLoanStatus = async (req, res) => {
           entryType: "CREDIT",
           paymentMode: "PAYOUT_GATEWAY",
           transactionId: `TXN-${uuidv4()}`,
-          status: "PENDING", // LedgerService must be updated to respect this
+          status: "PENDING", 
           relatedLoanId: loan._id,
           batchId: batchId
         }
       ];
 
-      // NEW: Pass through the Double-Entry Enforcer
       await LedgerService.executeDoubleEntry(transactionsToLog, "Loan Disbursement Approved");
     }
 
@@ -201,7 +199,7 @@ exports.processEMI = async (req, res) => {
     
     const LOAN_PRINCIPAL_FOLIO = '152'; 
     const LOAN_INTEREST_FOLIO = '153';  
-    const BANK_RECEIPT_FOLIO = '101'; // NEW: Required for the Debit side
+    const BANK_RECEIPT_FOLIO = '101'; 
 
     if (!vendorNo || !emiAmount || !annualInterestRate || !paymentMode) {
       return res.status(400).json({ success: false, message: "Missing required EMI fields including Payment Mode." });
@@ -243,7 +241,6 @@ exports.processEMI = async (req, res) => {
        return res.status(400).json({ success: false, message: "EMI amount must cover the monthly interest due." });
     }
 
-    // NEW: Calculate penalty first so we can add it to the Bank Debit
     let penaltyAmount = 0;
     if (isLatePayment && PENALTY_CONFIG.applyPenalty && !isFinalSettlement) {
       penaltyAmount = PENALTY_CONFIG.type === 'FLAT' 
@@ -251,7 +248,6 @@ exports.processEMI = async (req, res) => {
         : parseFloat((emiAmount * PENALTY_CONFIG.percentageRate).toFixed(2));
     }
 
-    // The total money actually hitting the bank
     const totalDebitAmount = emiAmount + penaltyAmount;
 
     const newTransactions = [];
@@ -272,7 +268,6 @@ exports.processEMI = async (req, res) => {
       documentProofUrl: documentProofUrl || null
     };
 
-    // --- NEW: THE MISSING DEBIT ENTRY ---
     newTransactions.push({
       ...baseTx,
       ledgerFolio: BANK_RECEIPT_FOLIO,
@@ -283,7 +278,6 @@ exports.processEMI = async (req, res) => {
       transactionId: `BANK-IN-${uuidv4()}`
     });
 
-    // --- THE CREDIT ENTRIES ---
     newTransactions.push({
       ...baseTx,
       ledgerFolio: LOAN_INTEREST_FOLIO, 
@@ -318,7 +312,6 @@ exports.processEMI = async (req, res) => {
       });
     }
 
-    // NEW: Pass through the Double-Entry Enforcer
     const description = isFinalSettlement ? 'Full & Final Principal Settlement' : `Monthly EMI Repayment (${paymentMode})`;
     const savedTransactions = await LedgerService.executeDoubleEntry(newTransactions, description);
     
@@ -352,10 +345,6 @@ exports.processEMI = async (req, res) => {
     res.status(500).json({ success: false, message: error.message || "Server error processing EMI" });
   }
 };
-
-// ==========================================
-// NEW DASHBOARD CONTROLLERS 
-// ==========================================
 
 exports.getPendingTransactions = async (req, res) => {
   try {
@@ -418,32 +407,21 @@ exports.approvePendingTransaction = async (req, res) => {
   }
 };
 
-// Fetch the logged-in user's active, approved, or pending loan
-exports.getMyLoan = async (req, res) => {
+exports.getMyLoanStatement = async (req, res) => {
   try {
-    const userId = req.user.id || req.user._id;
+    const memberId = req.user.id || req.user._id || req.user.userId;
+    const loans = await Loan.find({ memberId: memberId, status: { $in: ['APPROVED', 'ACTIVE', 'CLOSED'] } });
     
-    // UPDATED: Now fetches PENDING, APPROVED, and ACTIVE loans.
-    // .sort({ createdAt: -1 }) ensures it grabs their newest application
-    const loan = await Loan.findOne({ 
-      memberId: userId, 
-      status: { $in: ['PENDING', 'APPROVED', 'ACTIVE'] } 
-    }).sort({ createdAt: -1 });
-    
-    res.status(200).json({ loan });
+    res.status(200).json({ success: true, data: loans });
   } catch (error) {
-    console.error("Get My Loan Error:", error);
-    res.status(500).json({ error: "Failed to fetch loan data." });
+    console.error("Error fetching member loan:", error);
+    res.status(500).json({ success: false, message: "Failed to fetch your loan statement." });
   }
 };
 
-// ==========================================
-// NEW: SETTLE LOAN VIA RD OR SHARE BALANCE
-// ==========================================
 exports.settleLoanWithSavings = async (req, res) => {
   try {
     const { loanId, vendorNo, settlementSource, amountToAdjust } = req.body; 
-    // settlementSource can be 'RD_BALANCE' or 'SHARE_CAPITAL'
 
     if (!loanId || !vendorNo || !settlementSource || !amountToAdjust || Number(amountToAdjust) <= 0) {
       return res.status(400).json({ success: false, message: "Invalid payload parameters provided." });
@@ -451,7 +429,6 @@ exports.settleLoanWithSavings = async (req, res) => {
 
     const numericAmount = Number(amountToAdjust);
 
-    // 1. Fetch User and Loan records
     const user = await User.findOne({ vendorNo });
     const loan = await Loan.findOne({ loanId, vendorNo });
 
@@ -463,7 +440,6 @@ exports.settleLoanWithSavings = async (req, res) => {
       return res.status(400).json({ success: false, message: "This loan is already closed." });
     }
 
-    // 2. Validate available balance based on source
     let currentSourceBalance = 0;
     if (settlementSource === 'RD_BALANCE') {
       currentSourceBalance = user.rdBalance || 0; 
@@ -480,7 +456,6 @@ exports.settleLoanWithSavings = async (req, res) => {
       });
     }
 
-    // 3. Calculate exact outstanding principal from TransactionLog (Folio 152)
     const loanTransactions = await TransactionLog.find({ 
       vendorNo: vendorNo, 
       ledgerFolio: '152', 
@@ -504,12 +479,9 @@ exports.settleLoanWithSavings = async (req, res) => {
     }
 
     const batchId = `CONTRA-${uuidv4()}`;
-    const savingsFolio = settlementSource === 'SHARE_CAPITAL' ? '155' : '154'; // 155 = Share Capital, 154 = RD
+    const savingsFolio = settlementSource === 'SHARE_CAPITAL' ? '155' : '154'; 
     const memberName = user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Unknown Member';
 
-    // 4. Prepare Double-Entry Transactions
-    // DEBIT: Reducing Member Savings/Shares liability (Liability account goes down via Debit)
-    // CREDIT: Reducing Loan Principal asset (Asset account goes down via Credit)
     const contraTransactions = [
       {
         vendorNo: user.vendorNo,
@@ -527,7 +499,7 @@ exports.settleLoanWithSavings = async (req, res) => {
       {
         vendorNo: user.vendorNo,
         memberName: memberName,
-        ledgerFolio: '152', // Loan Principal Folio
+        ledgerFolio: '152', 
         memberId: user._id,
         category: 'CONTRA_ADJUSTMENT',
         amount: numericAmount,
@@ -540,10 +512,8 @@ exports.settleLoanWithSavings = async (req, res) => {
       }
     ];
 
-    // Execute via Ledger Enforcer
     await LedgerService.executeDoubleEntry(contraTransactions, `Loan ${loanId} settled using ${settlementSource.replace('_', ' ')}`);
 
-    // 5. Update User Balance
     if (settlementSource === 'RD_BALANCE') {
       user.rdBalance -= numericAmount;
     } else {
@@ -551,7 +521,6 @@ exports.settleLoanWithSavings = async (req, res) => {
     }
     await user.save();
 
-    // 6. Check if fully closed
     const newOutstanding = parseFloat((outstandingPrincipal - numericAmount).toFixed(2));
     let isFullyClosed = false;
     if (newOutstanding <= 0) {
@@ -571,6 +540,7 @@ exports.settleLoanWithSavings = async (req, res) => {
     res.status(500).json({ success: false, message: error.message || "Server error processing loan offset." });
   }
 };
+
 exports.getMemberBalancesForSettlement = async (req, res) => {
   try {
     const { vendorNo, loanId } = req.params;
@@ -585,7 +555,6 @@ exports.getMemberBalancesForSettlement = async (req, res) => {
       return res.status(404).json({ success: false, message: "Loan ID not found for this vendor." });
     }
 
-    // Calculate exact outstanding principal from TransactionLog (Folio 152)
     const loanTransactions = await TransactionLog.find({ 
       vendorNo: vendorNo, 
       ledgerFolio: '152', 
@@ -617,21 +586,15 @@ exports.getMemberBalancesForSettlement = async (req, res) => {
     res.status(500).json({ success: false, message: "Server error fetching member balances." });
   }
 };
-// ==========================================
-// GENERATE MONTHLY DEMAND / RECOVERY LIST
-// ==========================================
+
 exports.generateDemandSheet = async (req, res) => {
   try {
-    // 1. Fetch all members from the database
-    // (Make sure 'User' and 'Loan' are imported at the top of your file!)
     const users = await User.find({}); 
     const demandList = [];
 
     for (const user of users) {
-      // Pull their fixed RD amount (Ensure this matches the field in your User schema)
       const rdMonthly = user.monthlyRdContribution || user.rdAmount || 0; 
 
-      // 2. Find active loans for the member
       const activeLoans = await Loan.find({ 
         vendorNo: user.vendorNo, 
         status: { $in: ['APPROVED', 'ACTIVE'] } 
@@ -641,14 +604,12 @@ exports.generateDemandSheet = async (req, res) => {
       const activeLoanIds = [];
 
       for (const loan of activeLoans) {
-        // Grab the standard EMI saved on the loan
         const emi = loan.emiAmount || loan.monthlyEMI || 0;
         
         loanDemand += emi;
         activeLoanIds.push(loan.loanId);
       }
 
-      // 3. Only add member to the list if they actually owe something this month
       if (rdMonthly > 0 || loanDemand > 0) {
         demandList.push({
           vendorNo: user.vendorNo,
@@ -661,7 +622,6 @@ exports.generateDemandSheet = async (req, res) => {
       }
     }
 
-    // Send the calculated list back to DemandSheet.jsx
     res.status(200).json({ success: true, data: demandList });
 
   } catch (error) {
@@ -670,14 +630,10 @@ exports.generateDemandSheet = async (req, res) => {
   }
 };
 
-// ==========================================
-// NEW: FETCH MEMBER'S PASSBOOK LOAN
-// ==========================================
 exports.getMyLoan = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     
-    // Fetches PENDING, APPROVED, and ACTIVE loans.
     const loan = await Loan.findOne({ 
       memberId: userId, 
       status: { $in: ['PENDING', 'APPROVED', 'ACTIVE'] } 
@@ -689,6 +645,3 @@ exports.getMyLoan = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch loan data." });
   }
 };
-
-// ⚠️ WARNING: Make sure there is NO "module.exports = {}" block below this line! 
-// Every function in this file should use the "exports.functionName =" format.
