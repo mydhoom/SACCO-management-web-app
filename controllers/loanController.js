@@ -669,21 +669,10 @@ exports.generateDemandSheet = async (req, res) => {
     res.status(500).json({ success: false, message: "Server error generating demand sheet." });
   }
 };
-// Fetch the logged-in user's active loan
-const getMyLoan = async (req, res) => {
-  try {
-    const userId = req.user.id || req.user._id;
-    // Assuming your Loan schema links to the user via 'memberId'
-    const loan = await Loan.findOne({ memberId: userId, status: 'ACTIVE' });
-    
-    res.status(200).json({ loan });
-  } catch (error) {
-    console.error("Get My Loan Error:", error);
-    res.status(500).json({ error: "Failed to fetch loan data." });
-  }
-};
-// Fetch the logged-in user's active loan
-// Changed from "const" to "exports." so it matches the rest of the file!
+
+// ==========================================
+// NEW: FETCH MEMBER'S PASSBOOK LOAN
+// ==========================================
 exports.getMyLoan = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
@@ -700,3 +689,6 @@ exports.getMyLoan = async (req, res) => {
     res.status(500).json({ error: "Failed to fetch loan data." });
   }
 };
+
+// ⚠️ WARNING: Make sure there is NO "module.exports = {}" block below this line! 
+// Every function in this file should use the "exports.functionName =" format.
