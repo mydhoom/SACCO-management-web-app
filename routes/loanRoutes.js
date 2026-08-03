@@ -1,38 +1,27 @@
 const express = require("express");
 const { authenticate, authorize } = require("../middlewares/authMiddleware");
 
-// Import everything cleanly in one block
-const loanController = require('../controllers/loanController');
-const { 
-  requestLoan, 
-  getLoans, 
-  updateLoanStatus, 
-  applyForLoan, 
-  processEMI,
-  getPendingTransactions,
-  approvePendingTransaction,
-  getMyLoanStatement,
-  getMyLoan // <-- Added this here
-} = require("../controllers/loanController");
+// Import the controller as a single object to prevent 'undefined' unpacking errors
+const loanController = require("../controllers/loanController");
 
 const router = express.Router();
 
 // --- EXISTING ROUTES ---
-router.post("/", authenticate, authorize(["member", "admin"]), requestLoan);
-router.get("/", authenticate, authorize(["admin"]), getLoans);
-router.put("/:id", authenticate, authorize(["admin"]), updateLoanStatus);
-router.post("/apply", authenticate, applyForLoan);
-router.post("/process-emi", processEMI);
-router.get('/settle-lookup/:vendorNo/:loanId', loanController.getMemberBalancesForSettlement);
-router.post('/settle-via-savings', loanController.settleLoanWithSavings); 
+router.post("/", authenticate, authorize(["member", "admin"]), loanController.requestLoan);
+router.get("/", authenticate, authorize(["admin"]), loanController.getLoans);
+router.put("/:id", authenticate, authorize(["admin"]), loanController.updateLoanStatus);
+router.post("/apply", authenticate, loanController.applyForLoan);
+router.post("/process-emi", loanController.processEMI);
+router.get("/settle-lookup/:vendorNo/:loanId", loanController.getMemberBalancesForSettlement);
+router.post("/settle-via-savings", loanController.settleLoanWithSavings); 
 
 // --- DASHBOARD ROUTES ---
-router.get("/pending-transactions", authenticate, authorize(["admin"]), getPendingTransactions);
-router.put("/approve-transaction/:transactionId", authenticate, authorize(["admin"]), approvePendingTransaction);
-router.get("/my-statement", authenticate, getMyLoanStatement);
-router.get('/generate-demand-sheet', loanController.generateDemandSheet);
+router.get("/pending-transactions", authenticate, authorize(["admin"]), loanController.getPendingTransactions);
+router.put("/approve-transaction/:transactionId", authenticate, authorize(["admin"]), loanController.approvePendingTransaction);
+router.get("/my-statement", authenticate, loanController.getMyLoanStatement);
+router.get("/generate-demand-sheet", loanController.generateDemandSheet);
 
 // --- NEW PASSBOOK ROUTE ---
-router.get('/my-loan', authenticate, getMyLoan);
+router.get("/my-loan", authenticate, loanController.getMyLoan);
 
 module.exports = router;
