@@ -21,6 +21,8 @@ const interestRoutes = require("./routes/interestRoutes");
 const incentiveRoutes = require("./routes/incentiveRoutes");
 const dividendRoutes = require("./routes/dividendRoutes");
 const reconciliationRoutes = require("./routes/reconciliation"); // NEW: Added Reconciliation Route
+// Import the new admin routes at the top of app.js
+const adminRoutes = require('./routes/adminRoutes');
 
 // Initialize Database Connection
 connectDB();
@@ -74,5 +76,7 @@ app.use((req, res, next) => {
 // Global Error Handler (Catches system crashes and custom errors)
 // This must be the absolute last middleware in the file
 app.use(errorHandler);
+// Mount the routes so they respond to '/api/admin'
+app.use('/api/admin', adminRoutes);
 
 module.exports = app;
