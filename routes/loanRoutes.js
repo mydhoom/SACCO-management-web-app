@@ -1,5 +1,7 @@
 const express = require("express");
 const { authenticate, authorize } = require("../middlewares/authMiddleware");
+// ADD THIS LINE to import your controller
+const loanController = require('../controllers/loanController');
 const { 
   requestLoan, 
   getLoans, 
