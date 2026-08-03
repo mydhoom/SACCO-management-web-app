@@ -257,11 +257,14 @@ exports.generateCashbook = async (req, res) => {
     const end = new Date(endDate);
     end.setHours(23, 59, 59, 999); // Include the whole end day
 
-    // 1. Fetch transactions within the date range
+    // 1. Fetch transactions within the date range (Now with Names!)
     const transactions = await TransactionLog.find({
-      transactionDate: { $gte: start, $lte: end }, // Using your standard transactionDate field
+      transactionDate: { $gte: start, $lte: end },
       status: 'COMPLETED'
-    }).sort({ transactionDate: 1 });
+    })
+    .populate('memberId', 'name vendorNo firstName lastName') // <--- THIS PULLS THE REAL NAME
+    .sort({ transactionDate: 1 })
+    .lean(); // <--- Makes the data lighter and faster to send
 
     // 2. Fetch opening balance (All completed transactions BEFORE the start date)
     const previousTransactions = await TransactionLog.find({
