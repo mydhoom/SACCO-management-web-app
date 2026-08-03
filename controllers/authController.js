@@ -150,6 +150,25 @@ const updateUserStatus = async (req, res) => {
   }
 };
 
+// --- NEW: GET PROFILE LOGIC ---
+const getProfile = async (req, res) => {
+  try {
+    // req.user comes from your 'authenticate' middleware
+    const userId = req.user.id || req.user._id;
+
+    // Find the user and exclude the password for security
+    const user = await User.findById(userId).select("-password");
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    res.status(200).json({ user });
+  } catch (error) {
+    console.error("Get Profile Error:", error);
+    res.status(500).json({ error: "Failed to fetch profile data." });
+  }
+};
 // --- 6. PROFILE UPDATE LOGIC ---
 const updateProfile = async (req, res) => {
   try {
@@ -359,6 +378,7 @@ module.exports = {
   deleteMember,
   getPendingUsers,
   updateUserStatus,
+  getProfile,
   updateProfile,
   purgeDatabase,
   systemInitialization 

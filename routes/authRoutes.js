@@ -10,6 +10,7 @@ const {
   getPendingUsers,
   updateUserStatus,
   updateProfile,
+  getProfile,           // <--- ADDED
   purgeDatabase,            // Added Purge Function
   systemInitialization      // Added Excel Initialization Function
 } = require("../controllers/authController");
@@ -36,6 +37,9 @@ router.post("/approve-user/:id", authenticate, updateUserStatus);
 // --- PROFILE ROUTES ---
 // Fixes PUT https://sacco-management-web-app.onrender.com/api/auth/profile/update
 router.put("/profile/update", authenticate, updateProfile);
+
+// NEW: Fetch profile data for the Passbook
+router.get("/profile", authenticate, getProfile);
 
 // 1. Database Purge
 router.post("/purge", authenticate, authorize(["admin"]), purgeDatabase);
