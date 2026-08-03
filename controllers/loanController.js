@@ -418,15 +418,22 @@ exports.approvePendingTransaction = async (req, res) => {
   }
 };
 
-exports.getMyLoanStatement = async (req, res) => {
+// Fetch the logged-in user's active, approved, or pending loan
+exports.getMyLoan = async (req, res) => {
   try {
-    const memberId = req.user.id || req.user._id || req.user.userId;
-    const loans = await Loan.find({ memberId: memberId, status: { $in: ['APPROVED', 'ACTIVE', 'CLOSED'] } });
+    const userId = req.user.id || req.user._id;
     
-    res.status(200).json({ success: true, data: loans });
+    // UPDATED: Now fetches PENDING, APPROVED, and ACTIVE loans.
+    // .sort({ createdAt: -1 }) ensures it grabs their newest application
+    const loan = await Loan.findOne({ 
+      memberId: userId, 
+      status: { $in: ['PENDING', 'APPROVED', 'ACTIVE'] } 
+    }).sort({ createdAt: -1 });
+    
+    res.status(200).json({ loan });
   } catch (error) {
-    console.error("Error fetching member loan:", error);
-    res.status(500).json({ success: false, message: "Failed to fetch your loan statement." });
+    console.error("Get My Loan Error:", error);
+    res.status(500).json({ error: "Failed to fetch loan data." });
   }
 };
 
