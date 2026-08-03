@@ -1,4 +1,5 @@
 const express = require("express");
+const { getMyLoan } = require('../controllers/loanController'); // Import it
 const { authenticate, authorize } = require("../middlewares/authMiddleware");
 // ADD THIS LINE to import your controller
 const loanController = require('../controllers/loanController');
@@ -34,5 +35,7 @@ router.put("/approve-transaction/:transactionId", authenticate, authorize(["admi
 router.get("/my-statement", authenticate, getMyLoanStatement);
 // ADD THIS LINE IF IT IS MISSING:
 router.get('/generate-demand-sheet', loanController.generateDemandSheet);
+// Add this line with your other routes:
+router.get('/my-loan', authenticate, getMyLoan);
 
 module.exports = router;

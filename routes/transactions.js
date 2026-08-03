@@ -1,7 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const TransactionLog = require('../models/TransactionLog'); // Linking to the model we built yesterday!
+// Import your new controller and the auth middleware
+const { getMyTransactions } = require('../controllers/transactionController');
+const { authenticate } = require('../middlewares/authMiddleware');
 
+// --- YOUR NEW ROUTE ---
+router.get('/my-transactions', authenticate, getMyTransactions);
 // GET: Fetch all transactions for the Master Journal (Sorted newest first)
 router.get('/', async (req, res) => {
   try {
