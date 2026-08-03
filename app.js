@@ -21,8 +21,6 @@ const interestRoutes = require("./routes/interestRoutes");
 const incentiveRoutes = require("./routes/incentiveRoutes");
 const dividendRoutes = require("./routes/dividendRoutes");
 const reconciliationRoutes = require("./routes/reconciliation"); // NEW: Added Reconciliation Route
-// Import the routes at the top
-const reportRoutes = require('./routes/reportRoutes');
 
 // Initialize Database Connection
 connectDB();
