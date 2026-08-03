@@ -1,8 +1,7 @@
+const xlsx = require("xlsx"); // NEW: Required for reading the Initialization Excel file
 const User = require("../models/User"); 
 const bcrypt = require("bcryptjs"); 
-const jwt = require("jsonwebtoken"); // Required for creating the adminToken
-
-// --- NEW IMPORTS REQUIRED FOR DATABASE PURGE ---
+const jwt = require("jsonwebtoken"); 
 const Loan = require("../models/Loan");
 const TransactionLog = require("../models/TransactionLog");
 
@@ -58,11 +57,11 @@ const login = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ error: "Invalid password." });
 
-    // Generate Login Token (Using your environment secret or a fallback)
+    // Generate Login Token
     const secret = process.env.JWT_SECRET || 'sacco_super_secret_key';
     const token = jwt.sign({ id: user._id, role: user.role || 'member' }, secret, { expiresIn: '1d' });
     
-    // FIX: Send complete user data back (excluding password) so photo and all fields are available
+    // Send complete user data back (excluding password)
     const userResponse = user.toObject();
     delete userResponse.password;
 
@@ -88,10 +87,9 @@ const bulkUpload = async (req, res) => {
         await User.updateOne({ vendorNo: member.vendorNo }, { $set: member });
         updated++;
       } else {
-        // Add new member (Automatically approved since it comes from official Excel)
+        // Add new member
         member.status = 'approved';
         
-        // Give them a default password if they don't have one (e.g., their Vendor No)
         if (!member.password) {
           member.password = await bcrypt.hash(member.vendorNo, 10);
         }
@@ -111,7 +109,6 @@ const bulkUpload = async (req, res) => {
 // --- 4. DIRECTORY LOGIC ---
 const getAllMembers = async (req, res) => {
   try {
-    // Fetch all approved members, leaving out their passwords for security
     const users = await User.find({ status: 'approved' }).select('-password');
     res.status(200).json(users);
   } catch (error) {
@@ -153,10 +150,9 @@ const updateUserStatus = async (req, res) => {
   }
 };
 
-// --- 6. PROFILE UPDATE LOGIC (FIX FOR 404) ---
+// --- 6. PROFILE UPDATE LOGIC ---
 const updateProfile = async (req, res) => {
   try {
-    // req.user comes from your 'authenticate' middleware
     const userId = req.user.id || req.user._id;
 
     const updatedUser = await User.findByIdAndUpdate(
@@ -179,62 +175,166 @@ const updateProfile = async (req, res) => {
   }
 };
 
-// --- 7. DATABASE PURGE LOGIC ---
+// --- 7. UPGRADED DATABASE PURGE LOGIC ---
 const purgeDatabase = async (req, res) => {
   try {
-    const { collections, dateCondition, targetDate, adminPassword } = req.body;
-    
-    // 1. Double Authentication: Verify the Admin's password
-    // (Assuming req.user is populated by your JWT middleware)
-    const adminUser = await User.findById(req.user.id || req.user._id);
-    if (!adminUser) return res.status(404).json({ success: false, message: "Admin not found." });
+    const { collections, dateCondition, startDateTime, endDateTime, adminPassword } = req.body;
+
+    // Verify Admin Password using logged-in user's ID
+    const adminUser = await User.findById(req.user.id || req.user._id); 
+    if (!adminUser) {
+      return res.status(401).json({ success: false, message: "Admin account not found." });
+    }
 
     const isMatch = await bcrypt.compare(adminPassword, adminUser.password);
     if (!isMatch) {
-      return res.status(401).json({ success: false, message: "Authentication failed. Incorrect password." });
+      return res.status(401).json({ success: false, message: "Invalid admin password. Purge aborted." });
     }
 
-    // 2. Construct Date Query
+    // Build the Date Filter
     let dateQuery = {};
-    if (dateCondition !== 'ALL' && targetDate) {
-      const targetDateObj = new Date(targetDate);
-      const operator = dateCondition === 'AFTER' ? '$gte' : '$lt';
-      dateQuery = { [operator]: targetDateObj };
+    if (dateCondition !== 'ALL') {
+      if (dateCondition === 'BEFORE' && startDateTime) {
+        dateQuery = { createdAt: { $lt: new Date(startDateTime) } };
+      } 
+      else if (dateCondition === 'AFTER' && startDateTime) {
+        dateQuery = { createdAt: { $gt: new Date(startDateTime) } };
+      } 
+      else if (dateCondition === 'BETWEEN' && startDateTime && endDateTime) {
+        dateQuery = { 
+          createdAt: { 
+            $gte: new Date(startDateTime), 
+            $lte: new Date(endDateTime) 
+          } 
+        };
+      }
     }
 
-    const results = {};
+    const details = { transactionsDeleted: 0, loansDeleted: 0, usersDeleted: 0 };
 
-    // 3. Execute Deletions based on selected collections
     if (collections.includes('TRANSACTIONS')) {
-      const q = dateCondition === 'ALL' ? {} : { transactionDate: dateQuery };
-      const del = await TransactionLog.deleteMany(q);
-      results.transactionsDeleted = del.deletedCount;
+      const result = await TransactionLog.deleteMany(dateQuery);
+      details.transactionsDeleted = result.deletedCount;
     }
-
     if (collections.includes('LOANS')) {
-      const q = dateCondition === 'ALL' ? {} : { createdAt: dateQuery };
-      const del = await Loan.deleteMany(q);
-      results.loansDeleted = del.deletedCount;
+      const result = await Loan.deleteMany(dateQuery);
+      details.loansDeleted = result.deletedCount;
     }
-
     if (collections.includes('USERS')) {
-      // Never delete the Admin, even if they select ALL
-      const q = dateCondition === 'ALL' 
-        ? { role: { $ne: 'admin' } } 
-        : { role: { $ne: 'admin' }, createdAt: dateQuery };
-      const del = await User.deleteMany(q);
-      results.usersDeleted = del.deletedCount;
+      // CRITICAL: Never delete the admin account!
+      const userQuery = { ...dateQuery, role: { $ne: 'admin' } }; 
+      const result = await User.deleteMany(userQuery);
+      details.usersDeleted = result.deletedCount;
     }
 
-    res.status(200).json({ 
-      success: true, 
-      message: "Data purge completed successfully.", 
-      details: results 
+    res.status(200).json({ success: true, message: "Database purge completed successfully.", details });
+  } catch (error) {
+    console.error("Purge Error:", error);
+    res.status(500).json({ success: false, message: "Server error during database purge." });
+  }
+};
+
+// --- 8. SYSTEM INITIALIZATION LOGIC (FLEXIBLE EXCEL UPLOAD) ---
+const systemInitialization = async (req, res) => {
+  try {
+    const { asOfDate, bankBalance, cashInHand } = req.body;
+    
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: "Master Excel file is required." });
+    }
+    if (!asOfDate) {
+      return res.status(400).json({ success: false, message: "The 'As Of' date is required." });
+    }
+
+    const initDate = new Date(asOfDate);
+    const openingBank = Number(bankBalance) || 0;
+    const openingCash = Number(cashInHand) || 0;
+    const totalSocietyFunds = openingBank + openingCash;
+
+    // Read Excel File from memory
+    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = workbook.SheetNames[0]; 
+    const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+    let usersCreated = 0;
+    let loansCreated = 0;
+
+    for (const row of rows) {
+      const vendorNo = row['Vendor_No'] ? String(row['Vendor_No']).trim() : null;
+      if (!vendorNo) continue; 
+
+      let user = await User.findOne({ vendorNo });
+      
+      if (!user) {
+        user = new User({
+          vendorNo: vendorNo,
+          name: row['Full_Name'] || 'Unknown',
+          designation: row['Designation'] || 'N/A',
+          phone: row['Phone'] || '',
+          email: row['Email'] || '',
+          circle: row['Circle'] || '',
+          division: row['Division'] || '',
+          subDivision: row['Sub_Division'] || '',
+          section: row['Section'] || '',
+          shareBalance: Number(row['Opening_Share_Balance']) || 0,
+          rdBalance: Number(row['Opening_RD_Balance']) || 0,
+          role: 'member',
+          password: 'DefaultPassword123!', 
+          status: 'APPROVED'
+        });
+        await user.save();
+        usersCreated++;
+      } else {
+        user.shareBalance = Number(row['Opening_Share_Balance']) || 0;
+        user.rdBalance = Number(row['Opening_RD_Balance']) || 0;
+        await user.save();
+      }
+
+      const pendingPrincipal = Number(row['Opening_Principal_Pending']) || 0;
+      
+      if (pendingPrincipal > 0) {
+        const newLoan = new Loan({
+          memberId: user._id,
+          loanId: row['Active_Loan_ID'] || `LN-${vendorNo}-${Date.now()}`,
+          principalPending: pendingPrincipal,
+          emiAmount: Number(row['Current_EMI_Amount']) || 0,
+          status: 'ACTIVE',
+          issuedDate: initDate 
+        });
+        await newLoan.save();
+        loansCreated++;
+      }
+    }
+
+    // Create the Master Journal Entry for Opening Balances
+    if (totalSocietyFunds > 0) {
+      const openingLedgerEntry = new TransactionLog({
+        transactionDate: initDate,
+        amount: totalSocietyFunds,
+        entryType: 'CREDIT', 
+        paymentMode: 'BANK/CASH',
+        category: 'System Migration',
+        description: `System Initialization Opening Balance (Bank: ${openingBank}, Cash: ${openingCash})`,
+        ledgerFolio: 'OPENING-BAL',
+        status: 'COMPLETED'
+      });
+      await openingLedgerEntry.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `System successfully initialized as of ${initDate.toLocaleDateString('en-GB')}.`,
+      details: {
+        totalRowsProcessed: rows.length,
+        usersCreated,
+        loansCreated,
+        societyFundsLogged: totalSocietyFunds
+      }
     });
 
   } catch (error) {
-    console.error("Purge Error:", error);
-    res.status(500).json({ success: false, message: "Server error during data purge." });
+    console.error("Initialization Error:", error);
+    res.status(500).json({ success: false, message: "Server error during initialization." });
   }
 };
 
@@ -248,5 +348,6 @@ module.exports = {
   getPendingUsers,
   updateUserStatus,
   updateProfile,
-  purgeDatabase 
+  purgeDatabase,
+  systemInitialization 
 };
