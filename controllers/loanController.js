@@ -687,8 +687,12 @@ const getMyLoan = async (req, res) => {
 exports.getMyLoan = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
-    // Assuming your Loan schema links to the user via 'memberId'
-    const loan = await Loan.findOne({ memberId: userId, status: 'ACTIVE' });
+    
+    // Fetches PENDING, APPROVED, and ACTIVE loans.
+    const loan = await Loan.findOne({ 
+      memberId: userId, 
+      status: { $in: ['PENDING', 'APPROVED', 'ACTIVE'] } 
+    }).sort({ createdAt: -1 });
     
     res.status(200).json({ loan });
   } catch (error) {
