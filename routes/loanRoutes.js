@@ -32,5 +32,7 @@ router.put("/approve-transaction/:transactionId", authenticate, authorize(["admi
 
 // 3. Member Dashboard: Fetch only their own personal loan statement
 router.get("/my-statement", authenticate, getMyLoanStatement);
+// ADD THIS LINE IF IT IS MISSING:
+router.get('/generate-demand-sheet', loanController.generateDemandSheet);
 
 module.exports = router;
