@@ -564,3 +564,49 @@ exports.settleLoanWithSavings = async (req, res) => {
     res.status(500).json({ success: false, message: error.message || "Server error processing loan offset." });
   }
 };
+exports.getMemberBalancesForSettlement = async (req, res) => {
+  try {
+    const { vendorNo, loanId } = req.params;
+
+    const user = await User.findOne({ vendorNo });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Member not found with this Vendor Number." });
+    }
+
+    const loan = await Loan.findOne({ loanId, vendorNo });
+    if (!loan) {
+      return res.status(404).json({ success: false, message: "Loan ID not found for this vendor." });
+    }
+
+    // Calculate exact outstanding principal from TransactionLog (Folio 152)
+    const loanTransactions = await TransactionLog.find({ 
+      vendorNo: vendorNo, 
+      ledgerFolio: '152', 
+      status: 'COMPLETED' 
+    });
+
+    let outstandingPrincipal = 0;
+    loanTransactions.forEach(trx => {
+      if (trx.entryType === 'DEBIT') {
+        outstandingPrincipal += trx.amount; 
+      } else if (trx.entryType === 'CREDIT' && (trx.category === 'LOAN_REPAYMENT' || trx.category === 'CONTRA_ADJUSTMENT')) {
+        outstandingPrincipal -= trx.amount; 
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        memberName: user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Unknown',
+        outstandingPrincipal: outstandingPrincipal,
+        rdBalance: user.rdBalance || 0,
+        shareCapital: user.currentShareMoneyTotal || 0,
+        loanStatus: loan.status
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching settlement balances:", error);
+    res.status(500).json({ success: false, message: "Server error fetching member balances." });
+  }
+};
