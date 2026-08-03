@@ -55,6 +55,8 @@ app.use("/api/interest", interestRoutes);
 app.use("/api/dividends", dividendRoutes);
 app.use("/api/incentives", incentiveRoutes);
 app.use("/api/reconciliation", reconciliationRoutes); // NEW: Mounted Reconciliation Route
+// Mount the routes in your middleware section
+app.use('/api/reports', reportRoutes);
 
 // ==========================================
 // 3. FALLBACK & ERROR HANDLING

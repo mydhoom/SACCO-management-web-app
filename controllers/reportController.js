@@ -241,3 +241,72 @@ exports.generateBalanceSheet = async (req, res) => {
         res.status(500).json({ success: false, message: "Failed to generate financial statements." });
     }
 };
+// ==========================================
+// 5. MASTER CASHBOOK GENERATOR
+// ==========================================
+exports.generateCashbook = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, message: "Start date and End date are required." });
+    }
+
+    // Convert string dates to Date objects for MongoDB querying
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999); // Include the whole end day
+
+    // 1. Fetch transactions within the date range
+    const transactions = await TransactionLog.find({
+      transactionDate: { $gte: start, $lte: end }, // Using your standard transactionDate field
+      status: 'COMPLETED'
+    }).sort({ transactionDate: 1 });
+
+    // 2. Fetch opening balance (All completed transactions BEFORE the start date)
+    const previousTransactions = await TransactionLog.find({
+      transactionDate: { $lt: start },
+      status: 'COMPLETED'
+    });
+
+    // Calculate Opening Balance
+    let openingBalance = 0;
+    previousTransactions.forEach(trx => {
+      // Assuming Credits increase the society's cash and Debits decrease it
+      if (trx.entryType === 'CREDIT') openingBalance += trx.amount;
+      if (trx.entryType === 'DEBIT') openingBalance -= trx.amount;
+    });
+
+    // 3. Separate current period into Receipts and Payments for the T-Format UI
+    const receipts = [];
+    const payments = [];
+    let periodNet = 0;
+
+    transactions.forEach(trx => {
+      if (trx.entryType === 'CREDIT') {
+        receipts.push(trx);
+        periodNet += trx.amount;
+      } else if (trx.entryType === 'DEBIT') {
+        payments.push(trx);
+        periodNet -= trx.amount;
+      }
+    });
+
+    const closingBalance = openingBalance + periodNet;
+
+    // Send everything back to the frontend
+    res.status(200).json({
+      success: true,
+      data: {
+        openingBalance,
+        closingBalance,
+        receipts,
+        payments
+      }
+    });
+
+  } catch (error) {
+    console.error("Cashbook Generation Error:", error);
+    res.status(500).json({ success: false, message: "Server error generating Cashbook." });
+  }
+};

@@ -1,5 +1,7 @@
 const express = require("express");
 const { authenticate, authorize } = require("../middlewares/authMiddleware");
+// ADD THIS LINE to import your controller
+const loanController = require('../controllers/loanController');
 const { 
   requestLoan, 
   getLoans, 
@@ -19,7 +21,7 @@ router.get("/", authenticate, authorize(["admin"]), getLoans);
 router.put("/:id", authenticate, authorize(["admin"]), updateLoanStatus);
 router.post("/apply", authenticate, applyForLoan);
 router.post("/process-emi", processEMI);
-
+router.get('/settle-lookup/:vendorNo/:loanId', loanController.getMemberBalancesForSettlement);
 router.post('/settle-via-savings', loanController.settleLoanWithSavings); 
 // --- NEW DASHBOARD ROUTES ---
 // 1. Admin Clearance Dashboard: Fetch all pending cheques
@@ -30,5 +32,7 @@ router.put("/approve-transaction/:transactionId", authenticate, authorize(["admi
 
 // 3. Member Dashboard: Fetch only their own personal loan statement
 router.get("/my-statement", authenticate, getMyLoanStatement);
+// ADD THIS LINE IF IT IS MISSING:
+router.get('/generate-demand-sheet', loanController.generateDemandSheet);
 
 module.exports = router;

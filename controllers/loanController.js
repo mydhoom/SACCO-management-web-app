@@ -564,3 +564,101 @@ exports.settleLoanWithSavings = async (req, res) => {
     res.status(500).json({ success: false, message: error.message || "Server error processing loan offset." });
   }
 };
+exports.getMemberBalancesForSettlement = async (req, res) => {
+  try {
+    const { vendorNo, loanId } = req.params;
+
+    const user = await User.findOne({ vendorNo });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Member not found with this Vendor Number." });
+    }
+
+    const loan = await Loan.findOne({ loanId, vendorNo });
+    if (!loan) {
+      return res.status(404).json({ success: false, message: "Loan ID not found for this vendor." });
+    }
+
+    // Calculate exact outstanding principal from TransactionLog (Folio 152)
+    const loanTransactions = await TransactionLog.find({ 
+      vendorNo: vendorNo, 
+      ledgerFolio: '152', 
+      status: 'COMPLETED' 
+    });
+
+    let outstandingPrincipal = 0;
+    loanTransactions.forEach(trx => {
+      if (trx.entryType === 'DEBIT') {
+        outstandingPrincipal += trx.amount; 
+      } else if (trx.entryType === 'CREDIT' && (trx.category === 'LOAN_REPAYMENT' || trx.category === 'CONTRA_ADJUSTMENT')) {
+        outstandingPrincipal -= trx.amount; 
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        memberName: user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Unknown',
+        outstandingPrincipal: outstandingPrincipal,
+        rdBalance: user.rdBalance || 0,
+        shareCapital: user.currentShareMoneyTotal || 0,
+        loanStatus: loan.status
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching settlement balances:", error);
+    res.status(500).json({ success: false, message: "Server error fetching member balances." });
+  }
+};
+// ==========================================
+// GENERATE MONTHLY DEMAND / RECOVERY LIST
+// ==========================================
+exports.generateDemandSheet = async (req, res) => {
+  try {
+    // 1. Fetch all members from the database
+    // (Make sure 'User' and 'Loan' are imported at the top of your file!)
+    const users = await User.find({}); 
+    const demandList = [];
+
+    for (const user of users) {
+      // Pull their fixed RD amount (Ensure this matches the field in your User schema)
+      const rdMonthly = user.monthlyRdContribution || user.rdAmount || 0; 
+
+      // 2. Find active loans for the member
+      const activeLoans = await Loan.find({ 
+        vendorNo: user.vendorNo, 
+        status: { $in: ['APPROVED', 'ACTIVE'] } 
+      });
+
+      let loanDemand = 0;
+      const activeLoanIds = [];
+
+      for (const loan of activeLoans) {
+        // Grab the standard EMI saved on the loan
+        const emi = loan.emiAmount || loan.monthlyEMI || 0;
+        
+        loanDemand += emi;
+        activeLoanIds.push(loan.loanId);
+      }
+
+      // 3. Only add member to the list if they actually owe something this month
+      if (rdMonthly > 0 || loanDemand > 0) {
+        demandList.push({
+          vendorNo: user.vendorNo,
+          memberName: user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Unknown',
+          rdMonthly: rdMonthly,
+          loanDemand: loanDemand,
+          activeLoanIds: activeLoanIds.join(', ') || 'N/A',
+          totalDeduction: rdMonthly + loanDemand
+        });
+      }
+    }
+
+    // Send the calculated list back to DemandSheet.jsx
+    res.status(200).json({ success: true, data: demandList });
+
+  } catch (error) {
+    console.error("Demand Sheet Error:", error);
+    res.status(500).json({ success: false, message: "Server error generating demand sheet." });
+  }
+};
