@@ -21,7 +21,7 @@ router.get("/", authenticate, authorize(["admin"]), getLoans);
 router.put("/:id", authenticate, authorize(["admin"]), updateLoanStatus);
 router.post("/apply", authenticate, applyForLoan);
 router.post("/process-emi", processEMI);
-
+router.get('/settle-lookup/:vendorNo/:loanId', loanController.getMemberBalancesForSettlement);
 router.post('/settle-via-savings', loanController.settleLoanWithSavings); 
 // --- NEW DASHBOARD ROUTES ---
 // 1. Admin Clearance Dashboard: Fetch all pending cheques
