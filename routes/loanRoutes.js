@@ -1,7 +1,7 @@
 const express = require("express");
-const { getMyLoan } = require('../controllers/loanController'); // Import it
 const { authenticate, authorize } = require("../middlewares/authMiddleware");
-// ADD THIS LINE to import your controller
+
+// Import everything cleanly in one block
 const loanController = require('../controllers/loanController');
 const { 
   requestLoan, 
@@ -11,7 +11,8 @@ const {
   processEMI,
   getPendingTransactions,
   approvePendingTransaction,
-  getMyLoanStatement
+  getMyLoanStatement,
+  getMyLoan // <-- Added this here
 } = require("../controllers/loanController");
 
 const router = express.Router();
@@ -24,18 +25,14 @@ router.post("/apply", authenticate, applyForLoan);
 router.post("/process-emi", processEMI);
 router.get('/settle-lookup/:vendorNo/:loanId', loanController.getMemberBalancesForSettlement);
 router.post('/settle-via-savings', loanController.settleLoanWithSavings); 
-// --- NEW DASHBOARD ROUTES ---
-// 1. Admin Clearance Dashboard: Fetch all pending cheques
+
+// --- DASHBOARD ROUTES ---
 router.get("/pending-transactions", authenticate, authorize(["admin"]), getPendingTransactions);
-
-// 2. Admin Clearance Dashboard: Approve a specific transaction
 router.put("/approve-transaction/:transactionId", authenticate, authorize(["admin"]), approvePendingTransaction);
-
-// 3. Member Dashboard: Fetch only their own personal loan statement
 router.get("/my-statement", authenticate, getMyLoanStatement);
-// ADD THIS LINE IF IT IS MISSING:
 router.get('/generate-demand-sheet', loanController.generateDemandSheet);
-// Add this line with your other routes:
+
+// --- NEW PASSBOOK ROUTE ---
 router.get('/my-loan', authenticate, getMyLoan);
 
 module.exports = router;
