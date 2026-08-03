@@ -291,12 +291,14 @@ const systemInitialization = async (req, res) => {
       }
 
       const pendingPrincipal = Number(row['Opening_Principal_Pending']) || 0;
+      const pendingInterest = Number(row['Opening_Interest_Pending']) || 0; // NEW ADDITION
       
-      if (pendingPrincipal > 0) {
+      if (pendingPrincipal > 0 || pendingInterest > 0) { // Check both!
         const newLoan = new Loan({
           memberId: user._id,
           loanId: row['Active_Loan_ID'] || `LN-${vendorNo}-${Date.now()}`,
           principalPending: pendingPrincipal,
+          interestPending: pendingInterest, // NEW ADDITION
           emiAmount: Number(row['Current_EMI_Amount']) || 0,
           status: 'ACTIVE',
           issuedDate: initDate 
@@ -350,4 +352,4 @@ module.exports = {
   updateProfile,
   purgeDatabase,
   systemInitialization 
-};
+};  
