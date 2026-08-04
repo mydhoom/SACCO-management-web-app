@@ -114,5 +114,41 @@ const transactionLogSchema = new mongoose.Schema({
     default: null
   }
 }, { timestamps: true });
+// ==========================================
+// CUSTOM TRANSACTION ID GENERATOR
+// ==========================================
+transactionLogSchema.pre('save', function (next) {
+  // Only generate a new ID if this is a brand new transaction being created
+  if (this.isNew) {
+    // 1. Determine the Prefix based on the Category
+    let typePrefix = 'GEN'; // General fallback
+    const cat = this.category || '';
+    
+    if (cat.includes('LOAN')) typePrefix = 'LN';
+    else if (cat.includes('RECURRING')) typePrefix = 'RD';
+    else if (cat.includes('THRIFT')) typePrefix = 'MT';
+    else if (cat.includes('SHARE')) typePrefix = 'SH';
+    else if (cat.includes('DIVIDEND')) typePrefix = 'DIV';
+    else if (cat.includes('FEE') || cat.includes('FUND')) typePrefix = 'FEE';
+
+    // 2. Get the Vendor Number (Fallback to 'SYS' if it's a system transfer)
+    const vendor = this.vendorNo ? this.vendorNo.replace(/[^A-Za-z0-9]/g, '').toUpperCase() : 'SYS';
+
+    // 3. Format the Date as YYYYMMDD
+    const dateObj = this.transactionDate || new Date();
+    const yyyy = dateObj.getFullYear();
+    const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const dd = String(dateObj.getDate()).padStart(2, '0');
+    const dateStr = `${yyyy}${mm}${dd}`;
+
+    // 4. Generate a short 4-character random string to guarantee uniqueness
+    const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+
+    // 5. Combine them together into the final readable ID
+    this.transactionId = `${typePrefix}-${vendor}-${dateStr}-${randomSuffix}`;
+  }
+  
+  next();
+});
 
 module.exports = mongoose.model('TransactionLog', transactionLogSchema);
