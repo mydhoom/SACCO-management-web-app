@@ -387,9 +387,9 @@ exports.approvePendingTransaction = async (req, res) => {
 
     transaction.status = 'COMPLETED';
     await transaction.save();
-
+   
     await TransactionLog.updateMany(
-      { batchId: transaction.batchId, status: 'PENDING_VERIFICATION' },
+      { batchId: transaction.batchId, status: 'PENDING' },
       { $set: { status: 'COMPLETED' } }
     );
 
