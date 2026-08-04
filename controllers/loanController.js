@@ -217,7 +217,8 @@ exports.processEMI = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing required EMI fields including Payment Mode." });
     }
 
-    const txStatus = paymentMode === 'CHEQUE' ? 'PENDING_VERIFICATION' : 'COMPLETED';
+    // The exact word the Admin dashboard is looking for!
+    const txStatus = 'PENDING';
 
     const loanTransactions = await TransactionLog.find({ 
       vendorNo: vendorNo, 
