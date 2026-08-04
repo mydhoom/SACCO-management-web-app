@@ -18,6 +18,7 @@ router.post("/settle-via-savings", loanController.settleLoanWithSavings);
 // --- DASHBOARD ROUTES ---
 router.get("/pending-transactions", authenticate, authorize(["admin"]), loanController.getPendingTransactions);
 router.put("/approve-transaction/:transactionId", authenticate, authorize(["admin"]), loanController.approvePendingTransaction);
+router.put("/reject-transaction/:transactionId", authenticate, authorize(["admin"]), loanController.rejectPendingTransaction);
 router.get("/my-statement", authenticate, loanController.getMyLoanStatement);
 router.get("/generate-demand-sheet", loanController.generateDemandSheet);
 

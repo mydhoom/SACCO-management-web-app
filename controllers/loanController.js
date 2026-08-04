@@ -425,6 +425,35 @@ exports.approvePendingTransaction = async (req, res) => {
   }
 };
 
+exports.rejectPendingTransaction = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const { reason } = req.body; 
+    
+    const transaction = await TransactionLog.findOne({ transactionId });
+    if (!transaction) return res.status(404).json({ success: false, message: "Transaction not found." });
+    if (transaction.status !== 'PENDING') return res.status(400).json({ success: false, message: "Only pending transactions can be rejected." });
+
+    // Update the Bank Receipt, Interest, and Principal ledgers for this batch to REJECTED
+    await TransactionLog.updateMany(
+      { batchId: transaction.batchId, status: 'PENDING' },
+      { $set: { 
+          status: 'REJECTED', 
+          remarks: reason ? `Rejected by Admin: ${reason}` : 'Rejected by Admin' 
+        } 
+      }
+    );
+
+    res.status(200).json({ 
+      success: true, 
+      message: "Transaction safely rejected and removed from queue." 
+    });
+  } catch (error) {
+    console.error("Error rejecting transaction:", error);
+    res.status(500).json({ success: false, message: "Server error during rejection." });
+  }
+};
+
 exports.getMyLoanStatement = async (req, res) => {
   try {
     const memberId = req.user.id || req.user._id || req.user.userId;
