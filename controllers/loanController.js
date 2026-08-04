@@ -361,10 +361,11 @@ exports.processEMI = async (req, res) => {
 
 exports.getPendingTransactions = async (req, res) => {
   try {
+    // 🟢 FIXED: Now fetches the full BANK_RECEIPT (Total Amount) instead of the capped Principal
     const pendingTxns = await TransactionLog.find({ 
       status: 'PENDING', 
-      entryType: 'CREDIT', 
-      category: 'LOAN_REPAYMENT' 
+      entryType: 'DEBIT',           // Changed from CREDIT to DEBIT
+      category: 'BANK_RECEIPT'      // Changed from LOAN_REPAYMENT to BANK_RECEIPT
     })
       .populate('memberId', 'name vendorNo')
       .sort({ transactionDate: -1 });

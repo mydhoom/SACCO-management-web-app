@@ -1,6 +1,10 @@
 const mongoose = require('mongoose');
 
 const transactionLogSchema = new mongoose.Schema({
+  documentProofUrl: {
+    type: String,
+    default: null
+  },
   vendorNo: {
     type: String,
     required: true,
