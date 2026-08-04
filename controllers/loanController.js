@@ -361,7 +361,11 @@ exports.processEMI = async (req, res) => {
 
 exports.getPendingTransactions = async (req, res) => {
   try {
-    const pendingTxns = await TransactionLog.find({ status: 'PENDING_VERIFICATION', entryType: 'CREDIT', category: 'LOAN_REPAYMENT' })
+    const pendingTxns = await TransactionLog.find({ 
+      status: 'PENDING', 
+      entryType: 'CREDIT', 
+      category: 'LOAN_REPAYMENT' 
+    })
       .populate('memberId', 'name vendorNo')
       .sort({ transactionDate: -1 });
     
