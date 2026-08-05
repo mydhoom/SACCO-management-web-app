@@ -11,6 +11,25 @@ const BankStatement = require('../models/BankStatement');
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+// ==========================================
+// NEW: EXPONENTIAL BACKOFF RETRY ENGINE
+// Forces the system to wait if AI servers are busy/rate-limited
+// ==========================================
+const executeWithRetry = async (apiCall, maxRetries = 3, baseDelayMs = 3000) => {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await apiCall(); // If successful, return immediately
+    } catch (error) {
+      console.warn(`[AI API] Attempt ${i + 1} failed: ${error.message}`);
+      if (i === maxRetries - 1) throw error; // Out of retries, finally give up
+      
+      const delay = baseDelayMs * Math.pow(2, i); // Waits 3s, then 6s, then 12s
+      console.log(`⏳ AI Server busy. Waiting ${delay / 1000} seconds before retrying...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+};
+
 const extractCleanJSON = (text) => {
   try {
     const jsonStart = text.indexOf('[');
@@ -225,7 +244,11 @@ exports.uploadBankStatement = async (req, res) => {
 
     if (processingMode === 'AI') {
       try {
-        reconciliationResults = await runAIEngine(rawTextForAI);
+        if (fileType === 'application/pdf') {
+            reconciliationResults = await runAIEngine(rawTextForAI);
+        } else {
+            reconciliationResults = await runSmartContextAIMatch(extractedData);
+        }
       } catch (error) {
         console.warn("⚠️ ALL AI MODELS FAILED. Falling back to Local Standard Engine.");
         reconciliationResults = await runStandardEngine(extractedData);
@@ -234,32 +257,25 @@ exports.uploadBankStatement = async (req, res) => {
       reconciliationResults = await runStandardEngine(extractedData);
     }
 
-    // ==========================================
-    // FIX: EXTRACT TRUE CLOSING BALANCE (STRICTLY FOR SELECTED MONTH)
-    // ==========================================
     let trueClosingBalance = 0;
     if (extractedData.length > 0) {
-      // Scan from the bottom of the uploaded file upwards
       for (let i = extractedData.length - 1; i >= 0; i--) {
         const cleanRow = {};
         for (const key in extractedData[i]) {
           if (key) cleanRow[key.toLowerCase().replace(/[^a-z0-9]/g, '')] = extractedData[i][key];
         }
         
-        // Step 1: Identify the date of this specific row
         const rawDate = cleanRow['transactiondate'] || cleanRow['valuedate'] || cleanRow['date'];
         const cleanDate = parseBankDate(rawDate);
         
-        // Step 2: ONLY extract the balance if this row belongs to the selected month!
         if (isDateInPeriod(cleanDate, month, financialYear)) {
-            // Strip out any commas from the number (e.g., "1,71,251.65" -> 171251.65)
             let rawBal = cleanRow['balanceinr'] || cleanRow['balance'];
             if (typeof rawBal === 'string') rawBal = rawBal.replace(/,/g, '');
             const bal = Number(rawBal);
             
             if (bal && !isNaN(bal) && bal !== 0) {
               trueClosingBalance = bal;
-              break; // Stop looking! We found the absolute last balance for the selected month.
+              break; 
             }
         }
       }
@@ -302,20 +318,22 @@ async function runAIEngine(rawText) {
   for (const aiStep of aiCascade) {
     try {
       if (aiStep.provider === 'groq') {
-        const response = await groq.chat.completions.create({
+        // Wrapped Groq inside executeWithRetry
+        const response = await executeWithRetry(() => groq.chat.completions.create({
           model: aiStep.model,
           messages: [
             { role: 'system', content: 'You strictly output valid JSON objects.' },
             { role: 'user', content: prompt }
           ],
           response_format: { type: 'json_object' }
-        });
+        }));
         parsedAIResults = JSON.parse(response.choices[0].message.content).transactions;
       } else {
-        const response = await ai.models.generateContent({
+        // Wrapped Gemini inside executeWithRetry
+        const response = await executeWithRetry(() => ai.models.generateContent({
           model: aiStep.model,
           contents: prompt
-        });
+        }));
         const rawJson = extractCleanJSON(response.text);
         parsedAIResults = Array.isArray(rawJson) ? rawJson : (rawJson.transactions || []);
       }
@@ -325,7 +343,7 @@ async function runAIEngine(rawText) {
         break; 
       }
     } catch (error) {
-      console.warn(`[WARNING] ${aiStep.name} failed. Moving to next...`);
+      console.warn(`[WARNING] ${aiStep.name} ultimately failed after retries. Moving to next cascade model...`);
     }
   }
 
@@ -382,6 +400,85 @@ async function runAIEngine(rawText) {
       });
     }
   }));
+
+  return { matched, suspense };
+}
+
+async function runSmartContextAIMatch(bankRows) {
+  const pendingTxns = await TransactionLog.find({ status: 'PENDING_VERIFICATION' }).populate('memberId', 'name vendorNo');
+  const activeMembers = await User.find({}, 'vendorNo name monthlyRDAmount activeLoanAmount');
+
+  const systemContext = {
+    pendingTransactions: pendingTxns.map(t => ({
+      id: t.transactionId || t._id,
+      vendorNo: t.vendorNo,
+      memberName: t.memberId ? t.memberId.name : t.memberName,
+      amount: t.amount,
+      category: t.category
+    })),
+    members: activeMembers.map(m => ({
+      vendorNo: m.vendorNo,
+      name: m.name,
+      rdAmount: m.monthlyRDAmount
+    }))
+  };
+
+  const prompt = `
+    You are an expert Cooperative Society Bank Auditor.
+    Match the following Bank Statement Rows against our System Records.
+
+    BANK STATEMENT ROWS:
+    ${JSON.stringify(bankRows)}
+
+    SYSTEM RECORDS:
+    ${JSON.stringify(systemContext)}
+
+    INSTRUCTIONS:
+    1. Match bank narrations to vendor numbers, member names, or pending transactions.
+    2. Categorize direct debits/credits without system matches (e.g. BANK_CHARGE, UNIDENTIFIED_DEPOSIT).
+    3. Return a strict JSON array of objects with exactly these keys:
+       "bankDate" (string), "bankDescription" (string), "debit" (number), "credit" (number), "balance" (number), "matchedSystemId" (string or null), "matchedVendorNo" (string or null), "confidence" ("HIGH"|"MEDIUM"|"LOW"|"UNMATCHED"), "suggestedType" (string), "reasoning" (string).
+  `;
+
+  console.log("🤖 Sending context to AI for Smart Matching...");
+  
+  // Wrapped inside executeWithRetry to wait out rate limits
+  const response = await executeWithRetry(() => ai.models.generateContent({
+    model: 'gemini-1.5-pro',
+    contents: prompt
+  }));
+
+  const aiOutput = extractCleanJSON(response.text);
+
+  let matched = [];
+  let suspense = [];
+
+  aiOutput.forEach(row => {
+    const cleanDate = parseBankDate(row.bankDate);
+    if (row.confidence === 'HIGH' && row.matchedSystemId) {
+      matched.push({
+        systemTransactionId: row.matchedSystemId,
+        member: row.matchedVendorNo || "Unknown",
+        bankDate: cleanDate,
+        bankDescription: row.bankDescription,
+        credit: Number(row.credit) || 0,
+        debit: Number(row.debit) || 0,
+        confidence: "HIGH - AI Context Match"
+      });
+    } else {
+      const debitAmt = Number(row.debit) || 0;
+      const creditAmt = Number(row.credit) || 0;
+      suspense.push({
+        bankDate: cleanDate,
+        bankDescription: row.bankDescription,
+        debit: debitAmt,
+        credit: creditAmt,
+        balance: Number(row.balance) || 0,
+        suggestedType: row.suggestedType || (debitAmt > 0 ? "BANK DEBIT" : "UNRECONCILED DEPOSIT"),
+        status: debitAmt > 0 ? 'DEBIT' : 'UNRECONCILED'
+      });
+    }
+  });
 
   return { matched, suspense };
 }
@@ -532,7 +629,6 @@ exports.saveAndGenerateBRS = async (req, res) => {
     pendingSystemTx.forEach(tx => {
       if (matchedIds.includes(tx.transactionId)) return; 
       
-      // FIX: Filter pending system journal entries strictly to the selected month & FY
       const txDateStr = tx.transactionDate ? tx.transactionDate.toLocaleDateString('en-GB') : '';
       if (!isDateInPeriod(txDateStr, month, financialYear)) return;
 
@@ -677,9 +773,7 @@ exports.getYearlyStatement = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
-// ==========================================
-// NEW: DELETE BRS STATEMENT (RESET CAPABILITY)
-// ==========================================
+
 exports.deleteStatementByPeriod = async (req, res) => {
   try {
     const { financialYear, month } = req.query;
