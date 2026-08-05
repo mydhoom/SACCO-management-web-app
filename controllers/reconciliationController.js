@@ -296,6 +296,9 @@ exports.uploadBankStatement = async (req, res) => {
   }
 };
 
+// ==========================================
+// AI PDF EXTRACTION ENGINE (STRICTLY GEMINI FLASH)
+// ==========================================
 async function runAIEngine(rawText) {
   const prompt = `
     You are a bank reconciliation assistant. Read the bank statement text. 
@@ -305,50 +308,19 @@ async function runAIEngine(rawText) {
     Statement: ${rawText}
   `;
 
-  let parsedAIResults = null;
-  let successfulModel = "";
+  console.log("📄 Extracting PDF data strictly using Gemini 1.5 Flash...");
 
-  const aiCascade = [
-    { provider: 'groq', model: 'llama-3.3-70b-versatile', name: 'Groq Advanced' },
-    { provider: 'groq', model: 'llama-3.1-8b-instant', name: 'Groq Standard' },
-    { provider: 'gemini', model: 'gemini-1.5-pro', name: 'Gemini Advanced' },
-    { provider: 'gemini', model: 'gemini-1.5-flash', name: 'Gemini Standard' }
-  ];
+  const response = await executeWithRetry(() => ai.models.generateContent({
+    model: 'gemini-1.5-flash',
+    contents: prompt,
+    config: { responseMimeType: "application/json" }
+  }));
 
-  for (const aiStep of aiCascade) {
-    try {
-      if (aiStep.provider === 'groq') {
-        // Wrapped Groq inside executeWithRetry
-        const response = await executeWithRetry(() => groq.chat.completions.create({
-          model: aiStep.model,
-          messages: [
-            { role: 'system', content: 'You strictly output valid JSON objects.' },
-            { role: 'user', content: prompt }
-          ],
-          response_format: { type: 'json_object' }
-        }));
-        parsedAIResults = JSON.parse(response.choices[0].message.content).transactions;
-      } else {
-        // Wrapped Gemini inside executeWithRetry
-        const response = await executeWithRetry(() => ai.models.generateContent({
-          model: aiStep.model,
-          contents: prompt
-        }));
-        const rawJson = extractCleanJSON(response.text);
-        parsedAIResults = Array.isArray(rawJson) ? rawJson : (rawJson.transactions || []);
-      }
-      
-      if (parsedAIResults && Array.isArray(parsedAIResults)) {
-        successfulModel = aiStep.name;
-        break; 
-      }
-    } catch (error) {
-      console.warn(`[WARNING] ${aiStep.name} ultimately failed after retries. Moving to next cascade model...`);
-    }
-  }
+  const rawJson = extractCleanJSON(response.text);
+  const parsedAIResults = Array.isArray(rawJson) ? rawJson : (rawJson.transactions || []);
 
   if (!parsedAIResults || parsedAIResults.length === 0) {
-    throw new Error("All AI models failed.");
+    throw new Error("Gemini failed to extract valid JSON from the PDF.");
   }
 
   let matched = [];
@@ -361,7 +333,7 @@ async function runAIEngine(rawText) {
     const balanceAmt = Number(item.balance) || 0;
 
     if (creditAmt > 0) {
-      const matchResult = await findInternalMatch(creditAmt, cleanDate, successfulModel);
+      const matchResult = await findInternalMatch(creditAmt, cleanDate, "Gemini Flash");
 
       if (matchResult) {
         matched.push({
@@ -404,6 +376,9 @@ async function runAIEngine(rawText) {
   return { matched, suspense };
 }
 
+// ==========================================
+// NEW: SMART CONTEXT AI MATCHER ENGINE (STRICTLY GEMINI FLASH)
+// ==========================================
 async function runSmartContextAIMatch(bankRows) {
   const pendingTxns = await TransactionLog.find({ status: 'PENDING_VERIFICATION' }).populate('memberId', 'name vendorNo');
   const activeMembers = await User.find({}, 'vendorNo name monthlyRDAmount activeLoanAmount');
@@ -440,12 +415,12 @@ async function runSmartContextAIMatch(bankRows) {
        "bankDate" (string), "bankDescription" (string), "debit" (number), "credit" (number), "balance" (number), "matchedSystemId" (string or null), "matchedVendorNo" (string or null), "confidence" ("HIGH"|"MEDIUM"|"LOW"|"UNMATCHED"), "suggestedType" (string), "reasoning" (string).
   `;
 
-  console.log("🤖 Sending context to AI for Smart Matching...");
+  console.log("🤖 Sending context strictly to Gemini 1.5 Flash for Smart Matching...");
   
-  // Wrapped inside executeWithRetry to wait out rate limits
   const response = await executeWithRetry(() => ai.models.generateContent({
-    model: 'gemini-1.5-pro',
-    contents: prompt
+    model: 'gemini-1.5-flash',
+    contents: prompt,
+    config: { responseMimeType: "application/json" }
   }));
 
   const aiOutput = extractCleanJSON(response.text);
