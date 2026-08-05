@@ -366,7 +366,7 @@ exports.processEMI = async (req, res) => {
 exports.getPendingTransactions = async (req, res) => {
   try {
     const pendingTxns = await TransactionLog.find({ 
-      status: 'PENDING', 
+      status: { $in: ['PENDING', 'PENDING_VERIFICATION'] }, // FIXED: Now catches both
       entryType: 'DEBIT',           
       category: 'BANK_RECEIPT'      
     })
@@ -391,8 +391,9 @@ exports.approvePendingTransaction = async (req, res) => {
     transaction.status = 'COMPLETED';
     await transaction.save();
    
+    // FIXED: Updates all related batch items regardless of which pending status they used
     await TransactionLog.updateMany(
-      { batchId: transaction.batchId, status: 'PENDING' },
+      { batchId: transaction.batchId, status: { $in: ['PENDING', 'PENDING_VERIFICATION'] } },
       { $set: { status: 'COMPLETED' } }
     );
 
@@ -419,7 +420,7 @@ exports.approvePendingTransaction = async (req, res) => {
 
     res.status(200).json({ 
       success: true, 
-      message: "Cheque cleared and ledger officially updated.",
+      message: "Cheque/UPI cleared and ledger officially updated.",
       loanClosed: loanClosed
     });
   } catch (error) {
@@ -435,10 +436,14 @@ exports.rejectPendingTransaction = async (req, res) => {
     
     const transaction = await TransactionLog.findOne({ transactionId });
     if (!transaction) return res.status(404).json({ success: false, message: "Transaction not found." });
-    if (transaction.status !== 'PENDING') return res.status(400).json({ success: false, message: "Only pending transactions can be rejected." });
+    
+    // FIXED: Allows rejection of both pending statuses
+    if (!['PENDING', 'PENDING_VERIFICATION'].includes(transaction.status)) {
+        return res.status(400).json({ success: false, message: "Only pending transactions can be rejected." });
+    }
 
     await TransactionLog.updateMany(
-      { batchId: transaction.batchId, status: 'PENDING' },
+      { batchId: transaction.batchId, status: { $in: ['PENDING', 'PENDING_VERIFICATION'] } },
       { $set: { 
           status: 'REJECTED', 
           remarks: reason ? `Rejected by Admin: ${reason}` : 'Rejected by Admin' 
