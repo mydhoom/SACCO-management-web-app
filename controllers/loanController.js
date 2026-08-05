@@ -155,7 +155,16 @@ exports.updateLoanStatus = async (req, res) => {
 
 exports.applyForLoan = async (req, res) => {
   try {
-    const { requestedAmount, tenure, purpose, sharePaymentMethod } = req.body;
+    // 1. Safety Net: Catch multiple possible variable names sent by the frontend
+    const amount = req.body.requestedAmount || req.body.amount || req.body.loanAmount;
+    const tenure = req.body.tenure || req.body.tenureMonths;
+    const purpose = req.body.purpose || "General";
+    const sharePaymentMethod = req.body.sharePaymentMethod || "DEDUCT_FROM_LOAN";
+
+    // 2. Strict check before hitting the database
+    if (!amount || !tenure) {
+        return res.status(400).json({ error: "Missing required fields: Amount and Tenure are required." });
+    }
 
     if (!req.user) {
       return res.status(401).json({ error: "Unauthorized: User token is missing." });
@@ -168,7 +177,7 @@ exports.applyForLoan = async (req, res) => {
     }
 
     const user = await User.findById(memberId);
-    if (!user) return res.status(404).json({ error: "Member not found." });
+    if (!user) return res.status(404).json({ error: "Member not found in database." });
 
     const endDate = new Date();
     endDate.setMonth(endDate.getMonth() + Number(tenure));
@@ -179,13 +188,16 @@ exports.applyForLoan = async (req, res) => {
 
     const existingLoansCount = await Loan.countDocuments({ memberId: memberId });
     const nextSequence = existingLoansCount + 1; 
-    const loanId = `${user.vendorNo}-${nextSequence}`;
+    
+    // Safety Net: If vendorNo is missing from the user object, provide a fallback so it doesn't crash
+    const safeVendorNo = user.vendorNo || `MEM-${String(Date.now()).slice(-4)}`;
+    const loanId = `${safeVendorNo}-${nextSequence}`;
 
     const newApplication = new Loan({
       loanId: loanId,
       memberId: memberId,
-      loanAmount: requestedAmount,
-      tenure: tenure,
+      loanAmount: Number(amount), // Force it to be a number
+      tenure: Number(tenure),     // Force it to be a number
       purpose: purpose,
       sharePaymentMethod: sharePaymentMethod,
       endDate: endDate,
@@ -197,7 +209,8 @@ exports.applyForLoan = async (req, res) => {
     res.status(201).json({ message: "Application submitted successfully", loan: newApplication });
   } catch (error) {
     console.error("Apply Loan Error:", error);
-    res.status(500).json({ error: "Server error while processing application." });
+    // 3. Return the EXACT error message to the frontend console instead of a generic 500 error
+    res.status(500).json({ error: "Server error: " + error.message });
   }
 };
 
