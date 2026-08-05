@@ -37,7 +37,8 @@ exports.getLoans = async (req, res) => {
 exports.updateLoanStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, shareDeductionAmount, sharePaymentMethod } = req.body; 
+    // INJECTED: Added the Admin overrides and UTR/Cheque references here
+    const { status, shareDeductionAmount, sharePaymentMethod, transferMode, referenceNumber, approvedAmount, interestRate, tenure } = req.body; 
 
     let loan = await Loan.findOne({ loanId: id });
 
@@ -47,14 +48,17 @@ exports.updateLoanStatus = async (req, res) => {
 
     const isNewlyApproved = status === "APPROVED" && loan.status !== "APPROVED";
     
-    // Fallback to the method saved during application, or default to deducting from loan
     const paymentMethod = sharePaymentMethod || loan.sharePaymentMethod || 'DEDUCT_FROM_LOAN';
     const fetchedUser = await User.findById(loan.memberId);
     
+    // INJECTED: Apply Admin's modified loan terms from the frontend modal
+    if (approvedAmount) loan.loanAmount = approvedAmount;
+    if (interestRate) loan.interestRate = interestRate;
+    if (tenure) loan.tenure = tenure;
+
     const grossAmount = loan.loanAmount;
     const finalShareDeduction = shareDeductionAmount || (grossAmount * 0.10); 
 
-    // --- CRITICAL BALANCE CHECK BEFORE APPROVING ---
     if (isNewlyApproved && paymentMethod === 'RD_BALANCE') {
       if (!fetchedUser || (fetchedUser.rdBalance || 0) < finalShareDeduction) {
         return res.status(400).json({ 
@@ -63,29 +67,30 @@ exports.updateLoanStatus = async (req, res) => {
       }
     }
 
-    // Save Loan Status
     loan.status = status;
+    if (isNewlyApproved) {
+      loan.disbursalDate = new Date();
+      loan.disbursalReference = referenceNumber || null;
+      loan.disbursalMode = transferMode || null;
+    }
     await loan.save();
 
-    // --- LEDGER & MONEY MOVEMENT ---
     if (isNewlyApproved) {
       const batchId = `BATCH-${uuidv4()}`;
       const exactVendorNo = fetchedUser && fetchedUser.vendorNo ? fetchedUser.vendorNo : "SYS-LOAN-AUTO";
       const exactMemberName = fetchedUser ? (fetchedUser.name || `${fetchedUser.firstName || ''} ${fetchedUser.lastName || ''}`.trim() || 'Unknown Member') : "System Auto";
 
-      let netPayout = grossAmount; // Default assumes we pay out the full amount
+      let netPayout = grossAmount; 
       const transactionsToLog = [];
 
-      // 1. CORE LOAN DISBURSEMENT (Always happens)
       transactionsToLog.push({
         vendorNo: exactVendorNo, memberName: exactMemberName, ledgerFolio: '152', memberId: loan.memberId,
         category: "LOAN_DISBURSEMENT", amount: grossAmount, entryType: "DEBIT", paymentMode: "INTERNAL_TRANSFER",
         transactionId: `TXN-${uuidv4()}`, status: "COMPLETED", relatedLoanId: loan._id, batchId: batchId
       });
 
-      // 2. SHARE CAPITAL ROUTING logic based on chosen method
       if (paymentMethod === 'DEDUCT_FROM_LOAN') {
-        netPayout = grossAmount - finalShareDeduction; // Reduce the payout
+        netPayout = grossAmount - finalShareDeduction; 
         
         transactionsToLog.push({
           vendorNo: exactVendorNo, memberName: exactMemberName, ledgerFolio: '155', memberId: loan.memberId,
@@ -94,19 +99,16 @@ exports.updateLoanStatus = async (req, res) => {
         });
 
       } else if (paymentMethod === 'RD_BALANCE') {
-        // Physically deduct from user's RD and add to their Share Capital
         fetchedUser.rdBalance -= finalShareDeduction;
         fetchedUser.currentShareMoneyTotal = (fetchedUser.currentShareMoneyTotal || 0) + finalShareDeduction;
         await fetchedUser.save();
 
         transactionsToLog.push(
-          // Debit (Reduce) RD Balance
           {
             vendorNo: exactVendorNo, memberName: exactMemberName, ledgerFolio: '154', memberId: loan.memberId,
             category: "RD_OFFSET_FOR_SHARES", amount: finalShareDeduction, entryType: "DEBIT", paymentMode: "CONTRA_ADJUSTMENT",
             transactionId: `TXN-${uuidv4()}`, status: "COMPLETED", relatedLoanId: loan._id, batchId: batchId
           },
-          // Credit (Increase) Share Capital
           {
             vendorNo: exactVendorNo, memberName: exactMemberName, ledgerFolio: '155', memberId: loan.memberId,
             category: "SHARE_CAPITAL", amount: finalShareDeduction, entryType: "CREDIT", paymentMode: "CONTRA_ADJUSTMENT",
@@ -116,13 +118,11 @@ exports.updateLoanStatus = async (req, res) => {
 
       } else if (paymentMethod === 'CASH_UPI') {
         transactionsToLog.push(
-          // Debit (Increase) Society Bank/Cash Account
           {
             vendorNo: exactVendorNo, memberName: exactMemberName, ledgerFolio: '101', memberId: loan.memberId,
             category: "BANK_RECEIPT", amount: finalShareDeduction, entryType: "DEBIT", paymentMode: "CASH_UPI",
             transactionId: `TXN-${uuidv4()}`, status: "COMPLETED", relatedLoanId: loan._id, batchId: batchId
           },
-          // Credit (Increase) Share Capital
           {
             vendorNo: exactVendorNo, memberName: exactMemberName, ledgerFolio: '155', memberId: loan.memberId,
             category: "SHARE_CAPITAL", amount: finalShareDeduction, entryType: "CREDIT", paymentMode: "CASH_UPI",
@@ -131,14 +131,17 @@ exports.updateLoanStatus = async (req, res) => {
         );
       }
 
-      // 3. FINAL BANK PAYOUT ENTRY
+      // INJECTED: Now maps the Cheque/UPI details directly to the outgoing Bank Payout entry
       transactionsToLog.push({
         vendorNo: exactVendorNo, memberName: exactMemberName, ledgerFolio: '151', memberId: loan.memberId,
-        category: "BANK_PAYOUT", amount: netPayout, entryType: "CREDIT", paymentMode: "PAYOUT_GATEWAY",
-        transactionId: `TXN-${uuidv4()}`, status: "PENDING", relatedLoanId: loan._id, batchId: batchId
+        category: "BANK_PAYOUT", amount: netPayout, entryType: "CREDIT", 
+        paymentMode: transferMode || "PAYOUT_GATEWAY",
+        referenceNumber: referenceNumber || null,
+        transactionId: `TXN-${uuidv4()}`, 
+        status: referenceNumber ? "COMPLETED" : "PENDING", 
+        relatedLoanId: loan._id, batchId: batchId
       });
 
-      // Execute Ledger Entries
       const LedgerService = require('../services/LedgerService'); 
       await LedgerService.executeDoubleEntry(transactionsToLog, `Loan Disbursement Approved - Share via ${paymentMethod.replace(/_/g, ' ')}`);
     }
@@ -207,7 +210,7 @@ const PENALTY_CONFIG = {
 
 exports.processEMI = async (req, res) => {
   try {
-    const { vendorNo, emiAmount, annualInterestRate, isLatePayment, paymentMode, paymentDate, referenceNumber, documentProofUrl } = req.body;
+    const { vendorNo, emiAmount, annualInterestRate, isLatePayment, paymentMode, paymentDate, referenceNumber, documentProofUrl, loanId, remarks } = req.body;
     
     const LOAN_PRINCIPAL_FOLIO = '152'; 
     const LOAN_INTEREST_FOLIO = '153';  
@@ -217,8 +220,7 @@ exports.processEMI = async (req, res) => {
       return res.status(400).json({ success: false, message: "Missing required EMI fields including Payment Mode." });
     }
 
-    // The exact word the Admin dashboard is looking for!
-    const txStatus = 'PENDING';
+    const txStatus = 'PENDING_VERIFICATION'; 
 
     const loanTransactions = await TransactionLog.find({ 
       vendorNo: vendorNo, 
@@ -274,9 +276,11 @@ exports.processEMI = async (req, res) => {
       vendorNo: vendorNo,
       memberName: exactMemberNameEmi, 
       memberId: targetMemberId,
+      loanId: loanId, 
       status: txStatus,
       batchId: batchId,
       referenceNumber: referenceNumber || null,
+      remarks: remarks || null, 
       transactionDate: paymentDate ? new Date(paymentDate) : new Date(),
       documentProofUrl: documentProofUrl || null
     };
@@ -361,11 +365,10 @@ exports.processEMI = async (req, res) => {
 
 exports.getPendingTransactions = async (req, res) => {
   try {
-    // 🟢 FIXED: Now fetches the full BANK_RECEIPT (Total Amount) instead of the capped Principal
     const pendingTxns = await TransactionLog.find({ 
       status: 'PENDING', 
-      entryType: 'DEBIT',           // Changed from CREDIT to DEBIT
-      category: 'BANK_RECEIPT'      // Changed from LOAN_REPAYMENT to BANK_RECEIPT
+      entryType: 'DEBIT',           
+      category: 'BANK_RECEIPT'      
     })
       .populate('memberId', 'name vendorNo')
       .sort({ transactionDate: -1 });
@@ -434,7 +437,6 @@ exports.rejectPendingTransaction = async (req, res) => {
     if (!transaction) return res.status(404).json({ success: false, message: "Transaction not found." });
     if (transaction.status !== 'PENDING') return res.status(400).json({ success: false, message: "Only pending transactions can be rejected." });
 
-    // Update the Bank Receipt, Interest, and Principal ledgers for this batch to REJECTED
     await TransactionLog.updateMany(
       { batchId: transaction.batchId, status: 'PENDING' },
       { $set: { 
@@ -690,5 +692,69 @@ exports.getMyLoan = async (req, res) => {
   } catch (error) {
     console.error("Get My Loan Error:", error);
     res.status(500).json({ error: "Failed to fetch loan data." });
+  }
+};
+
+// ==========================================
+// DEPRECATED ROUTE (Leave safely untouched)
+// ==========================================
+exports.approveDisbursement = async (req, res) => {
+  try {
+    const { loanId, approvedAmount, interestRate, tenure, transferMode, referenceNumber } = req.body;
+
+    const loan = await Loan.findOne({ loanId: loanId }).populate('memberId');
+    if (!loan) return res.status(404).json({ success: false, message: "Loan application not found." });
+    if (loan.status === 'ACTIVE') return res.status(400).json({ success: false, message: "Loan is already active." });
+
+    loan.loanAmount = approvedAmount;
+    loan.principalPending = approvedAmount;
+    loan.interestRate = interestRate;
+    loan.tenure = tenure;
+    loan.status = 'ACTIVE';
+    loan.disbursalDate = new Date();
+    loan.disbursalReference = referenceNumber;
+    loan.disbursalMode = transferMode;
+
+    const monthlyRate = (interestRate / 100) / 12;
+    loan.emiAmount = Math.round((approvedAmount * monthlyRate * Math.pow(1 + monthlyRate, tenure)) / (Math.pow(1 + monthlyRate, tenure) - 1));
+    
+    await loan.save();
+
+    const disbursalEntries = [
+      {
+        vendorNo: loan.memberId.vendorNo,
+        memberName: loan.memberId.name,
+        memberId: loan.memberId._id,
+        ledgerFolio: '152', 
+        category: 'LOAN_DISBURSAL',
+        amount: approvedAmount,
+        entryType: 'DEBIT',
+        paymentMode: transferMode,
+        referenceNumber: referenceNumber,
+        transactionDate: new Date(),
+        transactionId: `LOAN-OUT-${Date.now()}`
+      },
+      {
+        vendorNo: loan.memberId.vendorNo,
+        memberName: loan.memberId.name,
+        memberId: loan.memberId._id,
+        ledgerFolio: '151', 
+        category: 'BANK_PAYMENT',
+        amount: approvedAmount,
+        entryType: 'CREDIT',
+        paymentMode: transferMode,
+        referenceNumber: referenceNumber,
+        transactionDate: new Date(),
+        transactionId: `BANK-CR-${Date.now()}`
+      }
+    ];
+
+    await LedgerService.executeDoubleEntry(disbursalEntries, `Loan Disbursed via ${transferMode} - Ref: ${referenceNumber}`);
+
+    res.status(200).json({ success: true, message: "Loan disbursed and ledger updated.", data: loan });
+
+  } catch (error) {
+    console.error("Loan Disbursal Error:", error);
+    res.status(500).json({ success: false, message: "Server error during loan disbursal." });
   }
 };

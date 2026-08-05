@@ -25,4 +25,7 @@ router.get("/generate-demand-sheet", loanController.generateDemandSheet);
 // --- NEW PASSBOOK ROUTE ---
 router.get("/my-loan", authenticate, loanController.getMyLoan);
 
+// ---> NEW ROUTE FOR ADMIN MONEY OUT <---
+router.post("/approve-disbursement", authenticate, authorize(["admin"]), loanController.approveDisbursement);
+
 module.exports = router;
