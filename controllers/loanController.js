@@ -4,42 +4,6 @@ const User = require('../models/User');
 const LedgerService = require('../services/LedgerService'); 
 const { v4: uuidv4 } = require("uuid");
 
-const syncLoanWorkflowFields = (loan, body = {}) => {
-  const { status, workflowStatus, approvalStatus } = body;
-  const FINANCIAL_CLEARANCE = "FINANCIAL_CLEARANCE";
-
-  if (
-    status === FINANCIAL_CLEARANCE ||
-    workflowStatus === FINANCIAL_CLEARANCE ||
-    approvalStatus === FINANCIAL_CLEARANCE
-  ) {
-    loan.status = FINANCIAL_CLEARANCE;
-    loan.workflowStatus = FINANCIAL_CLEARANCE;
-    loan.approvalStatus = FINANCIAL_CLEARANCE;
-    return;
-  }
-
-  if (typeof status !== "undefined" && status) {
-    loan.status = status;
-  }
-
-  if (typeof workflowStatus !== "undefined" && workflowStatus) {
-    loan.workflowStatus = workflowStatus;
-  }
-
-  if (typeof approvalStatus !== "undefined" && approvalStatus) {
-    loan.approvalStatus = approvalStatus;
-  }
-
-  if (!loan.workflowStatus) {
-    loan.workflowStatus = loan.status === "APPROVED" ? "FIRST_APPROVAL" : "PENDING_APPROVAL";
-  }
-
-  if (!loan.approvalStatus) {
-    loan.approvalStatus = loan.status === "APPROVED" ? "APPROVED" : "PENDING";
-  }
-};
-
 exports.requestLoan = async (req, res) => {
   try {
     const { memberId, loanAmount, interestRate, endDate } = req.body;
@@ -51,15 +15,7 @@ exports.requestLoan = async (req, res) => {
       return res.status(400).json({ error: "Loan end date cannot exceed the member's Date of Retirement." });
     }
 
-    const loan = new Loan({
-      memberId,
-      loanAmount,
-      interestRate,
-      endDate,
-      status: "PENDING",
-      workflowStatus: "PENDING_APPROVAL",
-      approvalStatus: "PENDING"
-    });
+    const loan = new Loan({ memberId, loanAmount, interestRate, endDate });
     await loan.save();
 
     res.status(201).json({ message: "Loan request submitted successfully!", loan });
@@ -71,19 +27,7 @@ exports.requestLoan = async (req, res) => {
 exports.getLoans = async (req, res) => {
   try {
     const loans = await Loan.find().populate("memberId", "name firstName lastName email vendorNo"); 
-
-    const normalizedLoans = loans.map((loan) => {
-      const loanObj = loan.toObject ? loan.toObject() : loan;
-
-      if (loanObj.status === "FINANCIAL_CLEARANCE" || loanObj.workflowStatus === "FINANCIAL_CLEARANCE") {
-        loanObj.workflowStatus = "FINANCIAL_CLEARANCE";
-        loanObj.approvalStatus = "FINANCIAL_CLEARANCE";
-      }
-
-      return loanObj;
-    });
-
-    res.status(200).json(normalizedLoans);
+    res.status(200).json(loans);
   } catch (error) {
     console.error("CRITICAL ERROR in getLoans:", error); 
     res.status(500).json({ error: error.message });
@@ -93,43 +37,24 @@ exports.getLoans = async (req, res) => {
 exports.updateLoanStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const {
-      status,
-      workflowStatus,
-      approvalStatus,
-      shareDeductionAmount,
-      sharePaymentMethod,
-      transferMode,
-      referenceNumber,
-      approvedAmount,
-      interestRate,
-      tenure
-    } = req.body; 
+    // INJECTED: Added the Admin overrides and UTR/Cheque references here
+    const { status, shareDeductionAmount, sharePaymentMethod, transferMode, referenceNumber, approvedAmount, interestRate, tenure } = req.body; 
 
-    let loan = await Loan.findOne({ $or: [{ _id: id }, { loanId: id }] });
+    let loan = await Loan.findOne({ loanId: id });
 
     if (!loan) {
       return res.status(404).json({ error: "Loan not found in database!" });
     }
 
-    const isNewlyApproved =
-      (status === "APPROVED" || workflowStatus === "APPROVED" || approvalStatus === "APPROVED") &&
-      loan.status !== "APPROVED" &&
-      loan.workflowStatus !== "FINANCIAL_CLEARANCE";
-
+    const isNewlyApproved = status === "APPROVED" && loan.status !== "APPROVED";
+    
     const paymentMethod = sharePaymentMethod || loan.sharePaymentMethod || 'DEDUCT_FROM_LOAN';
     const fetchedUser = await User.findById(loan.memberId);
-
+    
+    // INJECTED: Apply Admin's modified loan terms from the frontend modal
     if (approvedAmount) loan.loanAmount = approvedAmount;
     if (interestRate) loan.interestRate = interestRate;
     if (tenure) loan.tenure = tenure;
-
-    syncLoanWorkflowFields(loan, { status, workflowStatus, approvalStatus });
-
-    if (loan.status === "FINANCIAL_CLEARANCE") {
-      loan.workflowStatus = "FINANCIAL_CLEARANCE";
-      loan.approvalStatus = "FINANCIAL_CLEARANCE";
-    }
 
     const grossAmount = loan.loanAmount;
     const finalShareDeduction = shareDeductionAmount || (grossAmount * 0.10); 
@@ -142,6 +67,7 @@ exports.updateLoanStatus = async (req, res) => {
       }
     }
 
+    loan.status = status;
     if (isNewlyApproved) {
       loan.disbursalDate = new Date();
       loan.disbursalReference = referenceNumber || null;
@@ -205,6 +131,7 @@ exports.updateLoanStatus = async (req, res) => {
         );
       }
 
+      // INJECTED: Now maps the Cheque/UPI details directly to the outgoing Bank Payout entry
       transactionsToLog.push({
         vendorNo: exactVendorNo, memberName: exactMemberName, ledgerFolio: '151', memberId: loan.memberId,
         category: "BANK_PAYOUT", amount: netPayout, entryType: "CREDIT", 
@@ -215,6 +142,7 @@ exports.updateLoanStatus = async (req, res) => {
         relatedLoanId: loan._id, batchId: batchId
       });
 
+      const LedgerService = require('../services/LedgerService'); 
       await LedgerService.executeDoubleEntry(transactionsToLog, `Loan Disbursement Approved - Share via ${paymentMethod.replace(/_/g, ' ')}`);
     }
 
@@ -227,14 +155,7 @@ exports.updateLoanStatus = async (req, res) => {
 
 exports.applyForLoan = async (req, res) => {
   try {
-    const amount = req.body.requestedAmount || req.body.amount || req.body.loanAmount;
-    const tenure = req.body.tenure || req.body.tenureMonths;
-    const purpose = req.body.purpose || "General";
-    const sharePaymentMethod = req.body.sharePaymentMethod || "DEDUCT_FROM_LOAN";
-
-    if (!amount || !tenure) {
-        return res.status(400).json({ error: "Missing required fields: Amount and Tenure are required." });
-    }
+    const { requestedAmount, tenure, purpose, sharePaymentMethod } = req.body;
 
     if (!req.user) {
       return res.status(401).json({ error: "Unauthorized: User token is missing." });
@@ -247,7 +168,7 @@ exports.applyForLoan = async (req, res) => {
     }
 
     const user = await User.findById(memberId);
-    if (!user) return res.status(404).json({ error: "Member not found in database." });
+    if (!user) return res.status(404).json({ error: "Member not found." });
 
     const endDate = new Date();
     endDate.setMonth(endDate.getMonth() + Number(tenure));
@@ -258,21 +179,17 @@ exports.applyForLoan = async (req, res) => {
 
     const existingLoansCount = await Loan.countDocuments({ memberId: memberId });
     const nextSequence = existingLoansCount + 1; 
-    
-    const safeVendorNo = user.vendorNo || `MEM-${String(Date.now()).slice(-4)}`;
-    const loanId = `${safeVendorNo}-${nextSequence}`;
+    const loanId = `${user.vendorNo}-${nextSequence}`;
 
     const newApplication = new Loan({
       loanId: loanId,
       memberId: memberId,
-      loanAmount: Number(amount),
-      tenure: Number(tenure),
+      loanAmount: requestedAmount,
+      tenure: tenure,
       purpose: purpose,
       sharePaymentMethod: sharePaymentMethod,
       endDate: endDate,
-      status: "PENDING",
-      workflowStatus: "PENDING_APPROVAL",
-      approvalStatus: "PENDING"
+      status: "PENDING"
     });
 
     await newApplication.save();
@@ -280,7 +197,7 @@ exports.applyForLoan = async (req, res) => {
     res.status(201).json({ message: "Application submitted successfully", loan: newApplication });
   } catch (error) {
     console.error("Apply Loan Error:", error);
-    res.status(500).json({ error: "Server error: " + error.message });
+    res.status(500).json({ error: "Server error while processing application." });
   }
 };
 
@@ -449,7 +366,7 @@ exports.processEMI = async (req, res) => {
 exports.getPendingTransactions = async (req, res) => {
   try {
     const pendingTxns = await TransactionLog.find({ 
-      status: { $in: ['PENDING', 'PENDING_VERIFICATION'] }, 
+      status: 'PENDING', 
       entryType: 'DEBIT',           
       category: 'BANK_RECEIPT'      
     })
@@ -475,7 +392,7 @@ exports.approvePendingTransaction = async (req, res) => {
     await transaction.save();
    
     await TransactionLog.updateMany(
-      { batchId: transaction.batchId, status: { $in: ['PENDING', 'PENDING_VERIFICATION'] } },
+      { batchId: transaction.batchId, status: 'PENDING' },
       { $set: { status: 'COMPLETED' } }
     );
 
@@ -502,7 +419,7 @@ exports.approvePendingTransaction = async (req, res) => {
 
     res.status(200).json({ 
       success: true, 
-      message: "Cheque/UPI cleared and ledger officially updated.",
+      message: "Cheque cleared and ledger officially updated.",
       loanClosed: loanClosed
     });
   } catch (error) {
@@ -518,13 +435,10 @@ exports.rejectPendingTransaction = async (req, res) => {
     
     const transaction = await TransactionLog.findOne({ transactionId });
     if (!transaction) return res.status(404).json({ success: false, message: "Transaction not found." });
-    
-    if (!['PENDING', 'PENDING_VERIFICATION'].includes(transaction.status)) {
-        return res.status(400).json({ success: false, message: "Only pending transactions can be rejected." });
-    }
+    if (transaction.status !== 'PENDING') return res.status(400).json({ success: false, message: "Only pending transactions can be rejected." });
 
     await TransactionLog.updateMany(
-      { batchId: transaction.batchId, status: { $in: ['PENDING', 'PENDING_VERIFICATION'] } },
+      { batchId: transaction.batchId, status: 'PENDING' },
       { $set: { 
           status: 'REJECTED', 
           remarks: reason ? `Rejected by Admin: ${reason}` : 'Rejected by Admin' 
@@ -545,13 +459,7 @@ exports.rejectPendingTransaction = async (req, res) => {
 exports.getMyLoanStatement = async (req, res) => {
   try {
     const memberId = req.user.id || req.user._id || req.user.userId;
-    const loans = await Loan.find({
-      memberId: memberId,
-      $or: [
-        { workflowStatus: { $in: ['FIRST_APPROVAL', 'COMPLETED', 'FINANCIAL_CLEARANCE'] } },
-        { status: { $in: ['APPROVED', 'ACTIVE', 'CLOSED'] } }
-      ]
-    });
+    const loans = await Loan.find({ memberId: memberId, status: { $in: ['APPROVED', 'ACTIVE', 'CLOSED'] } });
     
     res.status(200).json({ success: true, data: loans });
   } catch (error) {
@@ -776,11 +684,8 @@ exports.getMyLoan = async (req, res) => {
     const userId = req.user.id || req.user._id;
     
     const loan = await Loan.findOne({ 
-      memberId: userId,
-      $or: [
-        { workflowStatus: { $in: ['PENDING_APPROVAL', 'FIRST_APPROVAL', 'FINANCIAL_CLEARANCE'] } },
-        { status: { $in: ['PENDING', 'APPROVED', 'ACTIVE'] } }
-      ]
+      memberId: userId, 
+      status: { $in: ['PENDING', 'APPROVED', 'ACTIVE'] } 
     }).sort({ createdAt: -1 });
     
     res.status(200).json({ loan });
@@ -790,6 +695,9 @@ exports.getMyLoan = async (req, res) => {
   }
 };
 
+// ==========================================
+// DEPRECATED ROUTE (Leave safely untouched)
+// ==========================================
 exports.approveDisbursement = async (req, res) => {
   try {
     const { loanId, approvedAmount, interestRate, tenure, transferMode, referenceNumber } = req.body;
@@ -803,8 +711,6 @@ exports.approveDisbursement = async (req, res) => {
     loan.interestRate = interestRate;
     loan.tenure = tenure;
     loan.status = 'ACTIVE';
-    loan.workflowStatus = 'COMPLETED';
-    loan.approvalStatus = 'APPROVED';
     loan.disbursalDate = new Date();
     loan.disbursalReference = referenceNumber;
     loan.disbursalMode = transferMode;
