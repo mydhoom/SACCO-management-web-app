@@ -366,9 +366,9 @@ exports.processEMI = async (req, res) => {
 exports.getPendingTransactions = async (req, res) => {
   try {
     const pendingTxns = await TransactionLog.find({ 
-      status: 'PENDING', 
-      entryType: 'DEBIT',           
-      category: 'BANK_RECEIPT'      
+      status: { $in: ['PENDING', 'PENDING_VERIFICATION'] }, 
+      // 👇 Removed strict DEBIT rule to allow CREDIT payouts
+      category: { $in: ['BANK_RECEIPT', 'BANK_PAYOUT'] }      
     })
       .populate('memberId', 'name vendorNo')
       .sort({ transactionDate: -1 });
