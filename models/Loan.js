@@ -47,8 +47,18 @@ const loanSchema = new mongoose.Schema({
   },
   status: { 
     type: String, 
-    enum: ["PENDING", "APPROVED", "REJECTED", "REPAID", "CLOSED"], // <-- Added CLOSED for full settlements
+    enum: ["PENDING", "APPROVED", "REJECTED", "REPAID", "CLOSED", "FINANCIAL_CLEARANCE"],
     default: "PENDING" 
+  },
+  workflowStatus: {
+    type: String,
+    enum: ["PENDING_APPROVAL", "FIRST_APPROVAL", "FINANCIAL_CLEARANCE", "COMPLETED"],
+    default: "PENDING_APPROVAL"
+  },
+  approvalStatus: {
+    type: String,
+    enum: ["PENDING", "APPROVED", "REJECTED", "FINANCIAL_CLEARANCE"],
+    default: "PENDING"
   },
 });
 
