@@ -44,14 +44,16 @@ const transactionLogSchema = new mongoose.Schema({
       'AUDIT_FEE',
       'RESERVE_FUND',
       'EDUCATION_FUND',
-      // NEW: Double-Entry & Suspense Categories
+      // Double-Entry & Suspense Categories
       'BANK_RECEIPT',
       'INTEREST_INCOME',
       'LOAN_ASSET',
       'RD_LIABILITY',
       'RD_DEPOSIT',
       'RD_WITHDRAWAL',
-      'SUSPENSE_CLEARING'
+      'SUSPENSE_CLEARING',
+      // Correction Manager
+      'REVERSAL'
     ]
   },
   amount: {
@@ -93,7 +95,7 @@ const transactionLogSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['PENDING', 'PENDING_VERIFICATION', 'COMPLETED', 'FAILED'], // NEW: Added PENDING_VERIFICATION
+    enum: ['PENDING', 'PENDING_VERIFICATION', 'COMPLETED', 'FAILED', 'REVERSED'],
     default: 'COMPLETED'
   },
   relatedLoanId: {
@@ -116,7 +118,27 @@ const transactionLogSchema = new mongoose.Schema({
   gatewayMetadata: {
     type: Object,
     default: null
+  },
+
+  // ── Correction Manager fields ──
+  // On the original transaction: points to the counter-entry that reversed it
+  reversedById: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'TransactionLog',
+    default: null
+  },
+  // On the counter-entry: points back to the original transaction being reversed
+  reversalOf: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'TransactionLog',
+    default: null
+  },
+  // Reason stored on both original and counter-entry
+  reversalReason: {
+    type: String,
+    default: null
   }
+
 }, { timestamps: true });
 // ==========================================
 // CUSTOM TRANSACTION ID GENERATOR

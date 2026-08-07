@@ -149,6 +149,9 @@ const calculateTransactionBalances = (transactions) => {
   let pendingWithdrawals = 0;
 
   transactions.forEach((trx) => {
+    // Skip reversed transactions and reversal counter-entries entirely
+    if (trx.status === 'REVERSED' || trx.category === 'REVERSAL') return;
+
     const amount = Number(trx.amount || 0);
     if (trx.ledgerFolio === '152') {
       if (trx.entryType === 'DEBIT') {
@@ -379,6 +382,9 @@ exports.verifyMember = async (req, res) => {
     let pendingWithdrawals = 0;
     
     transactions.forEach(trx => {
+      // Skip reversed transactions and reversal counter-entries entirely
+      if (trx.status === 'REVERSED' || trx.category === 'REVERSAL') return;
+
       if (trx.ledgerFolio === '152') {
         if (trx.entryType === 'DEBIT') {
           activeLoanBalance += Number(trx.amount || 0);
