@@ -1,11 +1,32 @@
 // controllers/aiController.js
-// AI Financial Assistant — Secure Backend Proxy
-// Fetches live data from MongoDB and calls Groq. API key never leaves the server.
+// AI Financial Assistant — Multi-Provider Secure Backend Proxy
+// Priority: GEMINI (2.5-flash → 1.5-flash) → GROQ (llama-3.3-70b → llama-3.1-8b)
+// Set AI_PROVIDER=GEMINI or AI_PROVIDER=GROQ in .env to force a specific provider.
 
 const Groq = require('groq-sdk');
+const { GoogleGenAI } = require('@google/genai');
 const User = require('../models/User');
 const TransactionLog = require('../models/TransactionLog');
 const Loan = require('../models/Loan');
+
+// ============================================================
+// PROVIDER RESOLVER — Gemini first, then Groq as fallback
+// ============================================================
+const getActiveProvider = () => {
+  const preferred = (process.env.AI_PROVIDER || '').toUpperCase();
+  // If a preference is set, honour it (if that key exists)
+  if (preferred === 'GEMINI' && process.env.GEMINI_API_KEY) return 'GEMINI';
+  if (preferred === 'GROQ'   && process.env.GROQ_API_KEY)   return 'GROQ';
+  // Auto-fallback: Gemini first, then Groq
+  if (process.env.GEMINI_API_KEY) return 'GEMINI';
+  if (process.env.GROQ_API_KEY)   return 'GROQ';
+  return null;
+};
+
+// Model lists — tried in order (high → low)
+const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+const GROQ_MODELS   = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
+
 
 // ============================================================
 // 1. GET AI CONTEXT — Builds a data snapshot for the AI
@@ -110,7 +131,8 @@ exports.getAiContext = async (req, res) => {
 
 
 // ============================================================
-// 2. HANDLE AI CHAT — Calls Groq with live context + user message
+// 2. HANDLE AI CHAT — Multi-provider: Groq, Gemini, or OpenAI
+// Set AI_PROVIDER=GEMINI (or GROQ / OPENAI) in your .env to choose.
 // ============================================================
 exports.handleAiChat = async (req, res) => {
   try {
@@ -120,22 +142,20 @@ exports.handleAiChat = async (req, res) => {
       return res.status(400).json({ error: 'Message and context are required.' });
     }
 
-    const groqApiKey = process.env.GROQ_API_KEY;
-    if (!groqApiKey) {
-      return res.status(503).json({ error: 'AI service is not configured on the server.' });
+    const provider = getActiveProvider();
+    if (!provider) {
+      return res.status(503).json({ error: 'No AI provider is configured. Please add GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY to your .env file.' });
     }
 
-    const groq = new Groq({ apiKey: groqApiKey });
-
-    // Language instruction for multi-lingual responses
+    // Language instruction
     const langInstructions = {
-      'hi-IN': 'IMPORTANT: Always respond in Hindi (हिंदी). Keep answers simple and clear.',
-      'mr-IN': 'IMPORTANT: Always respond in Marathi (मराठी). Keep answers simple and clear.',
+      'hi-IN': 'IMPORTANT: Always respond in Hindi (\u0939\u093f\u0902\u0926\u0940). Keep answers simple and clear.',
+      'mr-IN': 'IMPORTANT: Always respond in Marathi (\u092e\u0930\u093e\u0920\u0940). Keep answers simple and clear.',
       'en-IN': 'Always respond in English.'
     };
     const langInstruction = langInstructions[language] || langInstructions['en-IN'];
 
-    // Full navigation map so the AI can guide users to any page
+    // Navigation map
     const navMap = `
 COMPLETE APP NAVIGATION GUIDE:
 - Dashboard: Sidebar → "Dashboard" (top of sidebar menu)
@@ -158,8 +178,8 @@ COMPLETE APP NAVIGATION GUIDE:
 - System Settings (Admin): Sidebar → "System & Data" section → "System Settings"
 `;
 
+    // Build system prompt
     let systemPrompt = '';
-
     if (context.role === 'member') {
       systemPrompt = `You are a warm, helpful, and professional financial advisor for the Mahadev Society Cooperative (SACCO).
 You are speaking directly with member ${context.name} (Vendor No: ${context.vendorNo}).
@@ -217,26 +237,70 @@ Rules:
 5. Keep responses concise. No markdown. You are read-only.`;
     }
 
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...(history || []).map(h => ({ role: h.role, content: h.content })),
-      { role: 'user', content: message }
-    ];
+    let reply = '';
 
-    const completion = await groq.chat.completions.create({
-      messages,
-      model: 'llama-3.1-8b-instant',
-      temperature: 0.7,
-      max_tokens: 512
+    // ---- GEMINI (tries models high → low) ----
+    if (provider === 'GEMINI') {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      let lastError;
+      for (const model of GEMINI_MODELS) {
+        try {
+          const geminiHistory = (history || []).map(h => ({
+            role: h.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: h.content }]
+          }));
+          const chat = ai.chats.create({
+            model,
+            config: { systemInstruction: systemPrompt },
+            history: geminiHistory
+          });
+          const response = await chat.sendMessage({ message });
+          reply = response.text || '';
+          console.log(`AI: Gemini responded using model: ${model}`);
+          break; // Success — stop trying
+        } catch (err) {
+          console.warn(`Gemini model ${model} failed: ${err.message}`);
+          lastError = err;
+        }
+      }
+      if (!reply) throw lastError; // All Gemini models failed → bubble up
+
+    // ---- GROQ (tries models high → low) ----
+    } else if (provider === 'GROQ') {
+      const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        ...(history || []).map(h => ({ role: h.role, content: h.content })),
+        { role: 'user', content: message }
+      ];
+      let lastError;
+      for (const model of GROQ_MODELS) {
+        try {
+          const completion = await groq.chat.completions.create({
+            messages,
+            model,
+            temperature: 0.7,
+            max_tokens: 512
+          });
+          reply = completion.choices[0]?.message?.content || '';
+          console.log(`AI: Groq responded using model: ${model}`);
+          break; // Success — stop trying
+        } catch (err) {
+          console.warn(`Groq model ${model} failed: ${err.message}`);
+          lastError = err;
+        }
+      }
+      if (!reply) throw lastError; // All Groq models failed → bubble up
+    }
+
+    res.json({
+      success: true,
+      reply: reply || "I'm sorry, I couldn't generate a response. Please try again.",
+      provider
     });
 
-    const reply =
-      completion.choices[0]?.message?.content ||
-      "I'm sorry, I couldn't generate a response. Please try again.";
-
-    res.json({ success: true, reply });
   } catch (error) {
     console.error('AI Chat Error:', error);
-    res.status(500).json({ error: 'AI service encountered an error. Please try again shortly.' });
+    res.status(500).json({ error: `AI service (${getActiveProvider()}) encountered an error: ${error.message}` });
   }
 };
