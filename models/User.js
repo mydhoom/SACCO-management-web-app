@@ -4,6 +4,7 @@ const bcrypt = require("bcryptjs"); // Kept your security import!
 const userSchema = new mongoose.Schema({
   // --- 1. Core Identity & Authentication ---
   vendorNo: { type: String, required: true, unique: true },
+  societyAccountNo: { type: String, default: "" }, // NEW: Added from user image
   name: { type: String, required: true },
   password: { type: String, required: true },
   role: { type: String, enum: ["admin", "member"], default: "member" },
@@ -37,6 +38,7 @@ const userSchema = new mongoose.Schema({
   // --- 6. Loan & EMI Tracking ---
   activeLoanAmount: { type: Number, default: 0 },
   pendingLoanBalance: { type: Number, default: 0 },
+  pendingLoanInterest: { type: Number, default: 0 }, // NEW: Added Opening Interest Pending
   monthlyEmiAmount: { type: Number, default: 0 },
   remainingEmis: { type: Number, default: 0 },
   emiStartDate: { type: Date, default: null },
