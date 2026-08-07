@@ -114,7 +114,7 @@ exports.getAiContext = async (req, res) => {
 // ============================================================
 exports.handleAiChat = async (req, res) => {
   try {
-    const { message, context, history } = req.body;
+    const { message, context, history, language } = req.body;
 
     if (!message || !context) {
       return res.status(400).json({ error: 'Message and context are required.' });
@@ -127,56 +127,94 @@ exports.handleAiChat = async (req, res) => {
 
     const groq = new Groq({ apiKey: groqApiKey });
 
+    // Language instruction for multi-lingual responses
+    const langInstructions = {
+      'hi-IN': 'IMPORTANT: Always respond in Hindi (हिंदी). Keep answers simple and clear.',
+      'mr-IN': 'IMPORTANT: Always respond in Marathi (मराठी). Keep answers simple and clear.',
+      'en-IN': 'Always respond in English.'
+    };
+    const langInstruction = langInstructions[language] || langInstructions['en-IN'];
+
+    // Full navigation map so the AI can guide users to any page
+    const navMap = `
+COMPLETE APP NAVIGATION GUIDE:
+- Dashboard: Sidebar → "Dashboard" (top of sidebar menu)
+- RD & Savings Passbook: Sidebar → "My Financials" section → expand "My Passbooks" → "RD & Savings Passbook"
+- Loan Statement: Sidebar → "My Financials" section → expand "My Passbooks" → "Loan Statement"
+- Loan Calculator / Apply for Loan: Sidebar → "My Financials" section → click "Apply for a Loan"
+- My Profile: Click the user avatar/name icon in the top-right corner of the header
+- Pending Approvals (Admin): Sidebar → "Administration" section → "Pending Approvals"
+- Financial Clearances (Admin): Sidebar → "Administration" section → "Financial Clearances"
+- Master Journal (Admin): Sidebar → "Administration" section → "Master Journal"
+- Society Directory (Admin): Sidebar → "Administration" section → "Society Directory"
+- Process New Loans (Admin): Sidebar → "Administration" → expand "Loan Operations" → "Process New Loans"
+- Restructure Loans (Admin): Sidebar → "Administration" → expand "Loan Operations" → "Restructure & Adjust"
+- Deposits & Withdrawals (Admin): Sidebar → "Administration" → expand "Capital & Dividends" → "Deposits & Withdrawals"
+- Year-End Processing (Admin): Sidebar → "Administration" → expand "Capital & Dividends" → "Year-End Processing"
+- Master Cashbook (Admin): Sidebar → "Accounting & Ledger" section → "Master Cashbook"
+- Bank Reconciliation (Admin): Sidebar → "Accounting & Ledger" section → "Bank Reconciliation"
+- Reports Generation (Admin): Sidebar → "Accounting & Ledger" section → "Reports Generation"
+- Update Data / Upload CSV (Admin): Sidebar → "System & Data" section → "Update Data"
+- System Settings (Admin): Sidebar → "System & Data" section → "System Settings"
+`;
+
     let systemPrompt = '';
 
     if (context.role === 'member') {
-      systemPrompt = `You are "SaccoAI", a warm, helpful, and professional financial advisor for the Mahadev Society Cooperative (SACCO).
+      systemPrompt = `You are a warm, helpful, and professional financial advisor for the Mahadev Society Cooperative (SACCO).
 You are speaking directly with member ${context.name} (Vendor No: ${context.vendorNo}).
 
-Here is their LIVE account data as of today:
+${langInstruction}
+
+LIVE ACCOUNT DATA:
 - Share Capital Balance: Rs.${context.shareBalance.toLocaleString('en-IN')}
-- Recurring Deposit (RD) Balance: Rs.${context.rdBalance.toLocaleString('en-IN')}
+- RD Balance: Rs.${context.rdBalance.toLocaleString('en-IN')}
 - Monthly RD Contribution: Rs.${context.monthlyRDAmount.toLocaleString('en-IN')}
-- Active Loan Amount Sanctioned: Rs.${context.activeLoanAmount.toLocaleString('en-IN')}
-- Current Loan Outstanding (to pay): Rs.${context.loanOutstanding.toLocaleString('en-IN')}
+- Active Loan Sanctioned: Rs.${context.activeLoanAmount.toLocaleString('en-IN')}
+- Loan Outstanding: Rs.${context.loanOutstanding.toLocaleString('en-IN')}
 - Monthly EMI: Rs.${context.monthlyEMI.toLocaleString('en-IN')}
 - Remaining EMIs: ${context.remainingEMIs}
-- Maximum New Loan Eligibility: Rs.${context.maxLoanEligibility.toLocaleString('en-IN')} (based on 10x share capital)
+- Max New Loan Eligibility: Rs.${context.maxLoanEligibility.toLocaleString('en-IN')}
 - Date of Retirement: ${context.dateOfRetirement}
 
-Recent Transactions (last 10):
+Recent Transactions:
 ${context.recentTransactions.map(t => `  [${t.date}] ${t.type} - Rs.${t.amount} (${t.direction})`).join('\n')}
 
-Rules:
-1. Be conversational, helpful, and empathetic.
-2. Use the real data above to answer account questions. Never make up numbers.
-3. For goal planning, make practical calculations using their current balances.
-4. If they ask about a loan, use the 10x share capital rule.
-5. Keep responses concise and easy to understand. No markdown formatting.
-6. You cannot modify any data. You are a read-only advisor.`;
-    } else if (context.role === 'admin') {
-      systemPrompt = `You are "SaccoAI", an intelligent administrative assistant for the Mahadev Society Cooperative (SACCO).
-You are speaking with the admin: ${context.adminName}.
+${navMap}
 
-LIVE Society-Wide Financial Snapshot:
+Rules:
+1. Use the real account data above. Never make up numbers.
+2. When asked about navigation, use the NAVIGATION GUIDE to give clear step-by-step instructions.
+3. For loan eligibility, use the 10x share capital rule.
+4. Keep responses concise and conversational. No markdown.
+5. You are read-only — you cannot change any data.`;
+    } else if (context.role === 'admin') {
+      systemPrompt = `You are an intelligent administrative assistant for the Mahadev Society Cooperative (SACCO).
+You are speaking with admin: ${context.adminName}.
+
+${langInstruction}
+
+LIVE SOCIETY SNAPSHOT:
 - Total Approved Members: ${context.totalMembers}
 - Pending Member Approvals: ${context.pendingApprovals}
 - Pending Loan Applications: ${context.pendingLoanApplications}
-- Members with Zero Share Capital (risk): ${context.membersWithNoShares}
-- Total Share Capital (all members): Rs.${context.totalShareCapital.toLocaleString('en-IN')}
-- Total RD Pool Balance: Rs.${context.totalRDBalance.toLocaleString('en-IN')}
+- Members with Zero Share Capital: ${context.membersWithNoShares}
+- Total Share Capital: Rs.${context.totalShareCapital.toLocaleString('en-IN')}
+- Total RD Pool: Rs.${context.totalRDBalance.toLocaleString('en-IN')}
 - Total Active Loan Book: Rs.${context.totalActiveLoanAmount.toLocaleString('en-IN')}
-- Total Pending Loan Repayments: Rs.${context.totalPendingLoanBalance.toLocaleString('en-IN')}
+- Total Pending Repayments: Rs.${context.totalPendingLoanBalance.toLocaleString('en-IN')}
 - Expected Monthly RD Collection: Rs.${context.totalMonthlyRDCollection.toLocaleString('en-IN')}
 - Expected Monthly EMI Collection: Rs.${context.totalMonthlyEMICollection.toLocaleString('en-IN')}
-- Net Society Loan Exposure: Rs.${context.netExposure.toLocaleString('en-IN')}
+- Net Loan Exposure: Rs.${context.netExposure.toLocaleString('en-IN')}
+
+${navMap}
 
 Rules:
 1. Provide data-driven, professional administrative insights.
-2. Use real figures from the snapshot above — never fabricate numbers.
-3. Flag risks: high net exposure, members with no shares, pending approvals backlog.
-4. Keep responses concise. No markdown formatting, plain text only.
-5. You cannot modify any data. You are a read-only advisor.`;
+2. Use real figures. Never fabricate numbers.
+3. Flag risks: high net exposure, members with no shares, pending backlogs.
+4. When asked about navigation, use the NAVIGATION GUIDE to give step-by-step instructions.
+5. Keep responses concise. No markdown. You are read-only.`;
     }
 
     const messages = [
