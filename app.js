@@ -21,6 +21,7 @@ const interestRoutes = require("./routes/interestRoutes");
 const incentiveRoutes = require("./routes/incentiveRoutes");
 const dividendRoutes = require("./routes/dividendRoutes");
 const reconciliationRoutes = require("./routes/reconciliation"); // NEW: Added Reconciliation Route
+const aiRoutes = require("./routes/aiRoutes"); // AI Financial Assistant
 
 // Initialize Database Connection
 connectDB();
@@ -55,6 +56,7 @@ app.use("/api/interest", interestRoutes);
 app.use("/api/dividends", dividendRoutes);
 app.use("/api/incentives", incentiveRoutes);
 app.use("/api/reconciliation", reconciliationRoutes);
+app.use("/api/ai", aiRoutes); // AI Financial Assistant
 
 // ==========================================
 // 3. FALLBACK & ERROR HANDLING
