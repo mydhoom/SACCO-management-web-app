@@ -44,7 +44,21 @@ const userSchema = new mongoose.Schema({
 
   // --- 7. Withdrawal History ---
   withdrawalAmount: { type: Number, default: 0 },
-  withdrawalDate: { type: Date, default: null }
+  withdrawalDate: { type: Date, default: null },
+
+  // --- 8. KYC & Identity (SACCO requirement) ---
+  aadharNumber: { type: String, default: "" },
+  panNumber: { type: String, default: "" },
+
+  // --- 9. Banking Details (For Disbursals/Payouts) ---
+  bankName: { type: String, default: "" },
+  bankAccountNumber: { type: String, default: "" },
+  ifscCode: { type: String, default: "" },
+
+  // --- 10. Nominee / Next of Kin ---
+  nomineeName: { type: String, default: "" },
+  nomineeRelationship: { type: String, default: "" },
+  nomineePhone: { type: String, default: "" }
 
 }, { 
   timestamps: true // Automatically tracks exactly when a profile is created or updated

@@ -8,7 +8,7 @@ const TransactionLog = require("../models/TransactionLog");
 // --- 1. REGISTRATION LOGIC ---
 const register = async (req, res) => {
   try {
-    const { name, vendorNo, designation, password } = req.body;
+    const { name, vendorNo, designation, phoneNumber, password } = req.body;
     
     // Check if user already exists
     const existingUser = await User.findOne({ vendorNo });
@@ -16,15 +16,13 @@ const register = async (req, res) => {
       return res.status(400).json({ error: "An account with this Vendor Number already exists." });
     }
 
-    // Hash the password securely
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
     // Create new user (Defaults to pending so admin can approve)
     const newUser = new User({
       name,
       vendorNo,
       designation,
-      password: hashedPassword,
+      phoneNumber,
+      password: password, // Let the User.js pre-save hook handle the hashing!
       status: 'pending' // Locks the account until approved
     });
     
