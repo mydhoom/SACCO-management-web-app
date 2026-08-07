@@ -353,3 +353,141 @@ exports.getEventLog = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+// ============================================================
+// 5. BULK REVERSE TRANSACTIONS
+// Password verified once — then each transaction processed individually
+// Results reported per-transaction so partial failures are visible
+// ============================================================
+exports.bulkReverseTransactions = async (req, res) => {
+  try {
+    const { transactionIds, reason, adminPassword } = req.body;
+    const adminId = req.user.id;
+
+    // Basic validation
+    if (!Array.isArray(transactionIds) || transactionIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'No transaction IDs provided.' });
+    }
+    if (transactionIds.length > 50) {
+      return res.status(400).json({ success: false, message: 'Bulk reversal is limited to 50 transactions at a time.' });
+    }
+    if (!reason || reason.trim().length < 5) {
+      return res.status(400).json({ success: false, message: 'A reason of at least 5 characters is required.' });
+    }
+    if (!adminPassword) {
+      return res.status(400).json({ success: false, message: 'Admin password is required.' });
+    }
+
+    // Verify admin password ONCE before touching anything
+    const admin = await verifyAdminPassword(adminId, adminPassword);
+
+    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+    const results = [];
+
+    // Process each transaction independently so one failure doesn't block the others
+    for (const txId of transactionIds) {
+      const session = await mongoose.startSession();
+      session.startTransaction();
+
+      try {
+        const original = await TransactionLog.findOne({ transactionId: txId }).session(session);
+
+        if (!original) {
+          await session.abortTransaction();
+          results.push({ transactionId: txId, status: 'SKIPPED', reason: 'Transaction not found.' });
+          continue;
+        }
+        if (original.status === 'REVERSED') {
+          await session.abortTransaction();
+          results.push({ transactionId: txId, status: 'SKIPPED', reason: 'Already reversed.' });
+          continue;
+        }
+        if (original.category === 'REVERSAL') {
+          await session.abortTransaction();
+          results.push({ transactionId: txId, status: 'SKIPPED', reason: 'Cannot reverse a reversal counter-entry.' });
+          continue;
+        }
+
+        const balanceBefore = await getMemberBalance(original.vendorNo);
+        const snapshot = original.toObject();
+
+        // Create counter-entry
+        const counterEntry = new TransactionLog({
+          vendorNo:        original.vendorNo,
+          memberName:      original.memberName,
+          ledgerFolio:     original.ledgerFolio,
+          memberId:        original.memberId,
+          category:        'REVERSAL',
+          amount:          original.amount,
+          entryType:       original.entryType === 'CREDIT' ? 'DEBIT' : 'CREDIT',
+          paymentMode:     'INTERNAL_TRANSFER',
+          transactionDate: new Date(),
+          description:     `BULK REVERSAL of ${original.transactionId} — ${reason.trim()}`,
+          status:          'COMPLETED',
+          batchId:         `REV-${original.transactionId}`,
+          reversalOf:      original._id,
+          reversalReason:  reason.trim(),
+          relatedLoanId:   original.relatedLoanId || null
+        });
+        await counterEntry.save({ session });
+
+        // Mark original as REVERSED
+        original.status = 'REVERSED';
+        original.reversedById = counterEntry._id;
+        original.reversalReason = reason.trim();
+        await original.save({ session });
+
+        const balanceAfter = await getMemberBalance(original.vendorNo);
+
+        // Write immutable EventLog
+        await EventLog.create([{
+          eventType: 'REVERSAL',
+          performedBy: {
+            adminId:       admin._id,
+            adminName:     admin.name,
+            adminVendorNo: admin.vendorNo
+          },
+          ipAddress,
+          targetTransactionId:       original.transactionId,
+          originalSnapshot:          snapshot,
+          affectedVendorNo:          original.vendorNo,
+          affectedMemberName:        original.memberName,
+          counterEntryTransactionId: counterEntry.transactionId,
+          memberBalanceBefore:       balanceBefore,
+          memberBalanceAfter:        balanceAfter,
+          reason: `[BULK] ${reason.trim()}`
+        }], { session });
+
+        await session.commitTransaction();
+        results.push({
+          transactionId: txId,
+          status: 'REVERSED',
+          counterEntryId: counterEntry.transactionId,
+          balanceBefore,
+          balanceAfter
+        });
+
+      } catch (err) {
+        await session.abortTransaction();
+        results.push({ transactionId: txId, status: 'FAILED', reason: err.message });
+      } finally {
+        session.endSession();
+      }
+    }
+
+    const reversed = results.filter(r => r.status === 'REVERSED').length;
+    const skipped  = results.filter(r => r.status === 'SKIPPED').length;
+    const failed   = results.filter(r => r.status === 'FAILED').length;
+
+    res.json({
+      success: true,
+      summary: { total: transactionIds.length, reversed, skipped, failed },
+      results
+    });
+
+  } catch (error) {
+    console.error('Bulk Reversal Error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
