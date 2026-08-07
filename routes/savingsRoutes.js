@@ -15,7 +15,9 @@ const {
   getMemberSavingsSummary,
   getRecentTransactions,
   processDeposit,
-  verifyMember
+  verifyMember,
+  getPendingWithdrawals,
+  approveWithdrawal
 } = require("../controllers/savingsController");
 
 // ==========================================
@@ -34,5 +36,7 @@ router.get("/transactions", authenticate, getRecentTransactions);
 // The exact route your React frontend is looking for:
 router.get("/verify/:vendorNo", authenticate, verifyMember);
 router.post("/deposit", authenticate, processDeposit);
+router.get("/pending-withdrawals", authenticate, getPendingWithdrawals);
+router.put("/approve-withdrawal/:transactionId", authenticate, approveWithdrawal);
 
 module.exports = router;

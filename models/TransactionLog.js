@@ -109,6 +109,10 @@ const transactionLogSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  memberUpiId: {
+    type: String,
+    default: null
+  },
   gatewayMetadata: {
     type: Object,
     default: null

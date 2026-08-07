@@ -143,33 +143,95 @@ exports.getRecentTransactions = async (req, res) => {
 /**
  * Process a new Share, Mandatory, or Voluntary deposit using Vendor No
  */
+const calculateTransactionBalances = (transactions) => {
+  let calculatedBalance = 0;
+  let activeLoanBalance = 0;
+  let pendingWithdrawals = 0;
+
+  transactions.forEach((trx) => {
+    const amount = Number(trx.amount || 0);
+    if (trx.ledgerFolio === '152') {
+      if (trx.entryType === 'DEBIT') {
+        activeLoanBalance += amount;
+      } else if (trx.entryType === 'CREDIT') {
+        activeLoanBalance -= amount;
+      }
+      return;
+    }
+
+    if (trx.status === 'PENDING_VERIFICATION' && trx.entryType === 'DEBIT') {
+      pendingWithdrawals += amount;
+    }
+
+    if (trx.entryType === 'CREDIT') {
+      calculatedBalance += amount;
+    } else if (trx.entryType === 'DEBIT') {
+      calculatedBalance -= amount;
+    }
+  });
+
+  return {
+    availableBalance: calculatedBalance - pendingWithdrawals,
+    activeLoanBalance,
+  };
+};
+
 exports.processDeposit = async (req, res) => {
   try {
-    const { vendorNo, amount, type, action } = req.body;
+    const { vendorNo, amount, type, action, mode, memberUpiId } = req.body;
+    const parsedAmount = Number(amount);
 
-    if (!vendorNo || !amount || !type) {
-      return res.status(400).json({ success: false, message: "Please provide Vendor Number, amount, and type" });
+    if (!vendorNo || !type || !action || Number.isNaN(parsedAmount) || parsedAmount === 0) {
+      return res.status(400).json({ success: false, message: 'Please provide Vendor Number, amount, type, and action.' });
     }
 
-    let member = await Member.findOne({ vendorNo: req.body.vendorNo });
+    const isWithdrawal = action === 'Withdrawal';
+    const requestedAmount = Math.abs(parsedAmount);
+
+    let member = await Member.findOne({ vendorNo });
     if (!member) {
-      member = await User.findOne({ vendorNo: req.body.vendorNo });
+      member = await User.findOne({ vendorNo });
     }
 
     if (!member) {
-      return res.status(404).json({ 
-        success: false, 
-        message: `Transaction failed: No member found with Vendor Number '${req.body.vendorNo}'` 
+      return res.status(404).json({
+        success: false,
+        message: `Transaction failed: No member found with Vendor Number '${vendorNo}'`
       });
     }
 
     const memberId = member._id;
-    
-    // --- 1. THE TRANSLATOR DICTIONARIES ---
+
+    const allTransactions = await TransactionLog.find({ vendorNo });
+    const { availableBalance, activeLoanBalance } = calculateTransactionBalances(allTransactions);
+
+    if (isWithdrawal) {
+      if (requestedAmount > availableBalance) {
+        return res.status(400).json({
+          success: false,
+          message: `Withdrawal denied: insufficient available balance (₹${availableBalance.toLocaleString('en-IN')}).`
+        });
+      }
+
+      if (type === 'Share Capital' && activeLoanBalance > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Withdrawal denied: share capital can only be withdrawn after loan clearance.`
+        });
+      }
+
+      if (type === 'Recurring Deposit' && requestedAmount > activeLoanBalance && activeLoanBalance > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Withdrawal denied: RD withdrawal cannot exceed outstanding loan balance of ₹${activeLoanBalance.toLocaleString('en-IN')}.`
+        });
+      }
+    }
+
     const categoryMapping = {
       'Monthly Thrift/RD': 'MONTHLY_THRIFT',
-      'Voluntary Savings': 'MONTHLY_THRIFT', 
-      'Mandatory Savings': 'MONTHLY_THRIFT', 
+      'Voluntary Savings': 'MONTHLY_THRIFT',
+      'Mandatory Savings': 'MONTHLY_THRIFT',
       'RD Late Fine / Penalty': 'PENALTY',
       'Loan EMI Payment': 'LOAN_EMI',
       'Loan Prepayment': 'LOAN_REPAYMENT',
@@ -177,66 +239,116 @@ exports.processDeposit = async (req, res) => {
       'Share Capital': 'SHARE_CAPITAL',
       'Admission Fee': 'ADMISSION_FEE',
       'Stationary / Misc': 'STATIONARY_MISC',
-      'General Penalty / Fine': 'PENALTY'
-    };
-    
-    // FIX: Hardcoded Folio routing based on the official PDF document
-    const folioMapping = {
-      'Monthly Thrift/RD': '154',      // Recurring Deposit Account Members
-      'Voluntary Savings': '154',      // Recurring Deposit Account Members
-      'Mandatory Savings': '154',      // Recurring Deposit Account Members
-      'RD Late Fine / Penalty': '157', // Mapped to Misc
-      'Loan EMI Payment': '152',       // Members Loan Account
-      'Loan Prepayment': '152',        // Members Loan Account
-      'Loan Late Fee / Penalty': '152',// Excess recovery of loan
-      'Share Capital': '155',          // Member Share Account
-      'Admission Fee': '157',          // Admission fees
-      'Stationary / Misc': '157',      // Stationary/Miscellaneous Account
-      'General Penalty / Fine': '157'  // Mapped to Misc
+      'General Penalty / Fine': 'PENALTY',
+      'Recurring Deposit': 'RECURRING_DEPOSIT'
     };
 
-    const dbCategory = categoryMapping[req.body.type] || 'MONTHLY_THRIFT';
-    const dbFolio = folioMapping[req.body.type] || '157'; 
+    const folioMapping = {
+      'Monthly Thrift/RD': '154',
+      'Voluntary Savings': '154',
+      'Mandatory Savings': '154',
+      'RD Late Fine / Penalty': '157',
+      'Loan EMI Payment': '152',
+      'Loan Prepayment': '152',
+      'Loan Late Fee / Penalty': '152',
+      'Share Capital': '155',
+      'Admission Fee': '157',
+      'Stationary / Misc': '157',
+      'General Penalty / Fine': '157',
+      'Recurring Deposit': '154'
+    };
 
     const paymentModeMapping = {
-      'Cash': 'CASH',
-      'UPI': 'UPI',
-      'Cheque': 'CHEQUE',
+      Cash: 'CASH',
+      UPI: 'UPI',
+      Cheque: 'CHEQUE',
       'NEFT/RTGS': 'BANK_TRANSFER',
       'Bank Transfer': 'BANK_TRANSFER',
       'Payroll Deduction': 'INTERNAL_TRANSFER'
     };
-    const dbPaymentMode = paymentModeMapping[req.body.mode] || 'CASH';
-    const dbEntryType = req.body.action === 'Deposit' ? 'CREDIT' : 'DEBIT';
 
-    // --- 2. CREATE THE SAVINGS DOCUMENT ---
-    const savings = new Savings({ memberId, amount });
-    await savings.save();
+    const dbCategory = categoryMapping[type] || 'MONTHLY_THRIFT';
+    const dbFolio = folioMapping[type] || '157';
+    const dbPaymentMode = paymentModeMapping[mode] || 'CASH';
+    const dbEntryType = isWithdrawal ? 'DEBIT' : 'CREDIT';
+    const transactionStatus = isWithdrawal ? 'PENDING_VERIFICATION' : 'COMPLETED';
 
-    // --- 3. CREATE THE ROBUST TRANSACTION LOG RECORD ---
+    const fullName = member.name || `${member.firstName || ''} ${member.lastName || ''}`.trim();
+
     const newTransaction = await TransactionLog.create({
-      vendorNo: req.body.vendorNo,
-      ledgerFolio: dbFolio, // <-- FIX: Securely locked by the backend
-      memberId: memberId,
+      vendorNo,
+      memberName: fullName,
+      ledgerFolio: dbFolio,
+      memberId,
       category: dbCategory,
-      amount: Math.abs(amount),
+      amount: requestedAmount,
       entryType: dbEntryType,
       paymentMode: dbPaymentMode,
-      transactionId: `TRX-${Date.now()}`,
-      description: req.body.remarks || `${req.body.action || 'Deposit'} - ${req.body.type}`,
-      status: 'COMPLETED',
-      transactionReference: req.body.referenceNo || null
+      transactionId: `TRX-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      description: req.body.remarks || `${action} - ${type}`,
+      status: transactionStatus,
+      transactionReference: req.body.referenceNo || null,
+      memberUpiId: memberUpiId?.trim() || null
     });
 
-    res.status(201).json({
-      success: true,
-      message: `${action || type} processed successfully for ${member.firstName || 'Member'} (Vendor: ${vendorNo})`,
-      transaction: newTransaction
-    });
+    if (!isWithdrawal) {
+      const savings = new Savings({ memberId, amount: parsedAmount });
+      await savings.save();
+    }
 
+    const successMessage = isWithdrawal
+      ? 'Withdrawal request submitted successfully. An admin will clear it once funds are arranged.'
+      : `${action || type} processed successfully for ${fullName} (Vendor: ${vendorNo}).`;
+
+    res.status(201).json({ success: true, message: successMessage, transaction: newTransaction });
   } catch (error) {
-    console.error("Error processing transaction:", error);
-    res.status(500).json({ success: false, message: "Server error processing transaction" });
+    console.error('Error processing transaction:', error);
+    res.status(500).json({ success: false, message: 'Server error processing transaction' });
+  }
+};
+
+exports.getPendingWithdrawals = async (req, res) => {
+  try {
+    const pending = await TransactionLog.find({ status: 'PENDING_VERIFICATION', entryType: 'DEBIT' })
+      .populate('memberId', 'vendorNo firstName lastName name');
+
+    const formatted = pending.map((trx) => ({
+      transactionId: trx.transactionId,
+      vendorNo: trx.vendorNo,
+      memberName: trx.memberName || `${trx.memberId?.firstName || ''} ${trx.memberId?.lastName || ''}`.trim(),
+      amount: trx.amount,
+      paymentMode: trx.paymentMode,
+      referenceNumber: trx.transactionReference,
+      transactionDate: trx.transactionDate,
+      documentProofUrl: trx.documentProofUrl,
+      memberUpiId: trx.memberUpiId,
+      status: trx.status
+    }));
+
+    res.status(200).json({ success: true, data: formatted });
+  } catch (error) {
+    console.error('Error fetching pending withdrawals:', error);
+    res.status(500).json({ success: false, message: 'Server error fetching pending withdrawals' });
+  }
+};
+
+exports.approveWithdrawal = async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+
+    const pendingTx = await TransactionLog.findOne({ transactionId, status: 'PENDING_VERIFICATION', entryType: 'DEBIT' });
+    if (!pendingTx) {
+      return res.status(404).json({ success: false, message: 'Pending withdrawal not found.' });
+    }
+
+    await Savings.create({ memberId: pendingTx.memberId, amount: -Math.abs(pendingTx.amount) });
+    pendingTx.status = 'COMPLETED';
+    await pendingTx.save();
+
+    res.status(200).json({ success: true, message: 'Withdrawal approved and posted to the ledger.' });
+  } catch (error) {
+    console.error('Error approving withdrawal:', error);
+    res.status(500).json({ success: false, message: 'Server error approving withdrawal' });
   }
 };
 
@@ -260,29 +372,34 @@ exports.verifyMember = async (req, res) => {
       });
     }
 
-    const transactions = await TransactionLog.find({ vendorNo: vendorNo, status: 'COMPLETED' });
+    const transactions = await TransactionLog.find({ vendorNo: vendorNo });
     
     let calculatedBalance = 0;
-    let activeLoanBalance = 0; 
+    let activeLoanBalance = 0;
+    let pendingWithdrawals = 0;
     
     transactions.forEach(trx => {
       if (trx.ledgerFolio === '152') {
         if (trx.entryType === 'DEBIT') {
-          activeLoanBalance += Number(trx.amount || 0); 
+          activeLoanBalance += Number(trx.amount || 0);
         } else if (trx.entryType === 'CREDIT') {
-          activeLoanBalance -= Number(trx.amount || 0); 
+          activeLoanBalance -= Number(trx.amount || 0);
         }
-      } 
-      else {
-        if (trx.entryType === 'CREDIT' || trx.action === 'Deposit') {
-          calculatedBalance += Number(trx.amount || 0);
-        } else if (trx.entryType === 'DEBIT' || trx.action === 'Withdrawal') {
-          calculatedBalance -= Math.abs(Number(trx.amount || 0));
-        }
+        return;
+      }
+
+      if (trx.status === 'PENDING_VERIFICATION' && trx.entryType === 'DEBIT') {
+        pendingWithdrawals += Number(trx.amount || 0);
+      }
+
+      if (trx.entryType === 'CREDIT' || trx.action === 'Deposit') {
+        calculatedBalance += Number(trx.amount || 0);
+      } else if (trx.entryType === 'DEBIT' || trx.action === 'Withdrawal') {
+        calculatedBalance -= Math.abs(Number(trx.amount || 0));
       }
     });
 
-    const finalBalance = calculatedBalance !== 0 ? calculatedBalance : (person.currentShareMoneyTotal || 0);
+    const finalBalance = calculatedBalance - pendingWithdrawals;
     const finalLoanBalance = activeLoanBalance !== 0 ? activeLoanBalance : (person.pendingLoanBalance || 0);
 
     const fullName = person.name || `${person.firstName || ''} ${person.lastName || ''}`.trim();
