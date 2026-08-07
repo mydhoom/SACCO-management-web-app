@@ -1,7 +1,7 @@
 // controllers/aiController.js
 // AI Financial Assistant — Multi-Provider Secure Backend Proxy
-// Priority: GEMINI (2.5-flash → 1.5-flash) → GROQ (llama-3.3-70b → llama-3.1-8b)
-// Set AI_PROVIDER=GEMINI or AI_PROVIDER=GROQ in .env to force a specific provider.
+// Priority: GROQ first (free, reliable), Gemini as secondary when GEMINI key is set.
+// Set AI_PROVIDER=GROQ or AI_PROVIDER=GEMINI in .env to force a specific provider.
 
 const Groq = require('groq-sdk');
 const { GoogleGenAI } = require('@google/genai');
@@ -10,22 +10,49 @@ const TransactionLog = require('../models/TransactionLog');
 const Loan = require('../models/Loan');
 
 // ============================================================
-// PROVIDER RESOLVER — Gemini first, then Groq as fallback
+// PROVIDER RESOLVER — GROQ first (reliable free tier), Gemini secondary
 // ============================================================
 const getActiveProvider = () => {
   const preferred = (process.env.AI_PROVIDER || '').toUpperCase();
-  // If a preference is set, honour it (if that key exists)
   if (preferred === 'GEMINI' && process.env.GEMINI_API_KEY) return 'GEMINI';
   if (preferred === 'GROQ'   && process.env.GROQ_API_KEY)   return 'GROQ';
-  // Auto-fallback: Gemini first, then Groq
-  if (process.env.GEMINI_API_KEY) return 'GEMINI';
+  // Auto: GROQ first (Gemini free tier quota issues), then Gemini
   if (process.env.GROQ_API_KEY)   return 'GROQ';
+  if (process.env.GEMINI_API_KEY) return 'GEMINI';
   return null;
 };
 
-// Model lists — tried in order (high → low)
-const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+// Model lists — tried in order
+// Gemini: only models actually available on free tier as of Aug 2026
+const GEMINI_MODELS = ['gemini-2.0-flash-lite', 'gemini-2.0-flash', 'gemini-1.5-flash-8b'];
 const GROQ_MODELS   = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
+
+// ============================================================
+// SHARED HELPER — try Groq with full model cascade
+// ============================================================
+const tryGroq = async (messages, options = {}) => {
+  if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY not configured');
+  const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  let lastError;
+  for (const model of GROQ_MODELS) {
+    try {
+      const completion = await groq.chat.completions.create({
+        messages,
+        model,
+        temperature: options.temperature ?? 0.7,
+        max_tokens: options.max_tokens ?? 512,
+        ...(options.response_format ? { response_format: options.response_format } : {})
+      });
+      const reply = completion.choices[0]?.message?.content || '';
+      console.log(`AI: Groq (fallback) responded using model: ${model}`);
+      return reply;
+    } catch (err) {
+      console.warn(`Groq model ${model} failed: ${err.message}`);
+      lastError = err;
+    }
+  }
+  throw lastError;
+};
 
 
 // ============================================================
@@ -238,11 +265,20 @@ Rules:
     }
 
     let reply = '';
+    const groqMessages = [
+      { role: 'system', content: systemPrompt },
+      ...(history || []).map(h => ({ role: h.role, content: h.content })),
+      { role: 'user', content: message }
+    ];
 
-    // ---- GEMINI (tries models high → low) ----
-    if (provider === 'GEMINI') {
+    // ---- GROQ (primary — reliable free tier) ----
+    if (provider === 'GROQ') {
+      reply = await tryGroq(groqMessages, { temperature: 0.7, max_tokens: 512 });
+
+    // ---- GEMINI with automatic cascade to GROQ ----
+    } else if (provider === 'GEMINI') {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      let lastError;
+      let geminiSuccess = false;
       for (const model of GEMINI_MODELS) {
         try {
           const geminiHistory = (history || []).map(h => ({
@@ -257,40 +293,17 @@ Rules:
           const response = await chat.sendMessage({ message });
           reply = response.text || '';
           console.log(`AI: Gemini responded using model: ${model}`);
-          break; // Success — stop trying
+          geminiSuccess = true;
+          break;
         } catch (err) {
           console.warn(`Gemini model ${model} failed: ${err.message}`);
-          lastError = err;
         }
       }
-      if (!reply) throw lastError; // All Gemini models failed → bubble up
-
-    // ---- GROQ (tries models high → low) ----
-    } else if (provider === 'GROQ') {
-      const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-      const messages = [
-        { role: 'system', content: systemPrompt },
-        ...(history || []).map(h => ({ role: h.role, content: h.content })),
-        { role: 'user', content: message }
-      ];
-      let lastError;
-      for (const model of GROQ_MODELS) {
-        try {
-          const completion = await groq.chat.completions.create({
-            messages,
-            model,
-            temperature: 0.7,
-            max_tokens: 512
-          });
-          reply = completion.choices[0]?.message?.content || '';
-          console.log(`AI: Groq responded using model: ${model}`);
-          break; // Success — stop trying
-        } catch (err) {
-          console.warn(`Groq model ${model} failed: ${err.message}`);
-          lastError = err;
-        }
+      // If ALL Gemini models failed, cascade to Groq automatically
+      if (!geminiSuccess) {
+        console.warn('All Gemini models failed. Cascading to Groq...');
+        reply = await tryGroq(groqMessages, { temperature: 0.7, max_tokens: 512 });
       }
-      if (!reply) throw lastError; // All Groq models failed → bubble up
     }
 
     res.json({
@@ -301,7 +314,7 @@ Rules:
 
   } catch (error) {
     console.error('AI Chat Error:', error);
-    res.status(500).json({ error: `AI service (${getActiveProvider()}) encountered an error: ${error.message}` });
+    res.status(500).json({ error: `AI service encountered an error: ${error.message}` });
   }
 };
 
@@ -352,10 +365,19 @@ Please map the UPLOADED EXCEL HEADERS to the TARGET SCHEMA FIELDS.`;
 
     let reply = '';
 
-    // ---- GEMINI ----
-    if (provider === 'GEMINI') {
+    const mappingMessages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ];
+
+    // ---- GROQ (primary) ----
+    if (provider === 'GROQ') {
+      reply = await tryGroq(mappingMessages, { temperature: 0.1, response_format: { type: 'json_object' } });
+
+    // ---- GEMINI with cascade to GROQ ----
+    } else if (provider === 'GEMINI') {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-      let lastError;
+      let geminiSuccess = false;
       for (const model of GEMINI_MODELS) {
         try {
           const chat = ai.chats.create({
@@ -368,39 +390,17 @@ Please map the UPLOADED EXCEL HEADERS to the TARGET SCHEMA FIELDS.`;
           const response = await chat.sendMessage({ message: userPrompt });
           reply = response.text || '';
           console.log(`AI Mapping: Gemini responded using model: ${model}`);
+          geminiSuccess = true;
           break;
         } catch (err) {
           console.warn(`Gemini model ${model} failed for mapping: ${err.message}`);
-          lastError = err;
         }
       }
-      if (!reply) throw lastError;
-
-    // ---- GROQ ----
-    } else if (provider === 'GROQ') {
-      const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-      const messages = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ];
-      let lastError;
-      for (const model of GROQ_MODELS) {
-        try {
-          const completion = await groq.chat.completions.create({
-            messages,
-            model,
-            temperature: 0.1,
-            response_format: { type: "json_object" }
-          });
-          reply = completion.choices[0]?.message?.content || '';
-          console.log(`AI Mapping: Groq responded using model: ${model}`);
-          break;
-        } catch (err) {
-          console.warn(`Groq model ${model} failed for mapping: ${err.message}`);
-          lastError = err;
-        }
+      // Cascade to Groq if Gemini fails
+      if (!geminiSuccess) {
+        console.warn('All Gemini models failed for mapping. Cascading to Groq...');
+        reply = await tryGroq(mappingMessages, { temperature: 0.1, response_format: { type: 'json_object' } });
       }
-      if (!reply) throw lastError;
     }
 
     // Robust JSON extraction to handle any conversational text wrapping
