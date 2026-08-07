@@ -143,7 +143,7 @@ const transactionLogSchema = new mongoose.Schema({
 // ==========================================
 // CUSTOM TRANSACTION ID GENERATOR
 // ==========================================
-transactionLogSchema.pre('save', function (next) {
+transactionLogSchema.pre('validate', function (next) {
   // Only generate a new ID if this is a brand new transaction being created
   if (this.isNew) {
     // 1. Determine the Prefix based on the Category
