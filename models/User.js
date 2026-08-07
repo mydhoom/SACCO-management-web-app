@@ -21,6 +21,7 @@ const userSchema = new mongoose.Schema({
   phoneNumber: { type: String, default: "" },
   emailId: { type: String, default: "" },
   permanentAddress: { type: String, default: "" },
+  upiId: { type: String, default: "" }, // Added UPI ID for loan & withdrawal disbursals
 
   // --- 4. Dates & Timelines ---
   dateOfBirth: { type: Date, default: null }, // <-- ADDED: Date of Birth

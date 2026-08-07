@@ -253,13 +253,15 @@ const purgeDatabase = async (req, res) => {
   }
 };
 
+const AuditLog = require("../models/AuditLog"); // Added for Audit Logging
+
 // --- 8. SYSTEM INITIALIZATION LOGIC (FLEXIBLE EXCEL UPLOAD) ---
 const systemInitialization = async (req, res) => {
   try {
-    const { asOfDate, bankBalance, cashInHand } = req.body;
+    const { asOfDate, bankBalance, cashInHand, rows } = req.body;
     
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: "Master Excel file is required." });
+    if (!rows || !Array.isArray(rows) || rows.length === 0) {
+      return res.status(400).json({ success: false, message: "Valid JSON data array (rows) is required." });
     }
     if (!asOfDate) {
       return res.status(400).json({ success: false, message: "The 'As Of' date is required." });
@@ -269,11 +271,6 @@ const systemInitialization = async (req, res) => {
     const openingBank = Number(bankBalance) || 0;
     const openingCash = Number(cashInHand) || 0;
     const totalSocietyFunds = openingBank + openingCash;
-
-    // Read Excel File from memory
-    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
-    const sheetName = workbook.SheetNames[0]; 
-    const rows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
 
     let usersCreated = 0;
     let loansCreated = 0;
@@ -295,6 +292,7 @@ const systemInitialization = async (req, res) => {
           division: row['Division'] || '',
           subDivision: row['Sub_Division'] || '',
           section: row['Section'] || '',
+          upiId: row['UPI_ID'] || '',
 
           // --- UPDATED TO MATCH YOUR EXACT SCHEMA ---
           currentShareMoneyTotal: Number(row['Opening_Share_Balance']) || 0,
@@ -316,6 +314,7 @@ const systemInitialization = async (req, res) => {
         user.monthlyRDAmount = Number(row['Monthly_RD_Amount']) || user.monthlyRDAmount;
         user.pendingLoanBalance = Number(row['Opening_Principal_Pending']) || user.pendingLoanBalance;
         user.monthlyEmiAmount = Number(row['Current_EMI_Amount']) || user.monthlyEmiAmount;
+        if (row['UPI_ID']) user.upiId = String(row['UPI_ID']).trim(); // update UPI if provided
         await user.save();
       }
 
@@ -351,6 +350,15 @@ const systemInitialization = async (req, res) => {
       });
       await openingLedgerEntry.save();
     }
+
+    // AUDIT LOGGING
+    const adminId = req.user.id;
+    const logDetails = `Uploaded ${usersCreated} Users & ${loansCreated} Loans. Master Date: ${initDate.toLocaleDateString('en-GB')}.`;
+    await AuditLog.create({
+      userId: adminId, // Using userId to match schema
+      action: "MASTER_DATA_INITIALIZATION",
+      details: logDetails
+    });
 
     res.status(200).json({
       success: true,

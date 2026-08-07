@@ -12,4 +12,7 @@ router.get('/context', authenticate, getAiContext);
 // POST /api/ai/chat — Receives a message + context, calls Groq, returns the AI reply
 router.post('/chat', authenticate, handleAiChat);
 
+// POST /api/ai/map-excel — AI analyzes Excel headers and maps them to the system schema
+router.post('/map-excel', authenticate, require('../controllers/aiController').handleAiExcelMapping);
+
 module.exports = router;

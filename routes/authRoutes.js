@@ -45,12 +45,10 @@ router.get("/profile", authenticate, getProfile);
 router.post("/purge", authenticate, authorize(["admin"]), purgeDatabase);
 
 // --- INITIALIZATION ROUTE ---
-// Notice we use upload.single('masterFile') to catch the Excel file from the frontend
 router.post(
   "/system-init", 
   authenticate, 
   authorize(["admin"]), 
-  upload.single("masterFile"), 
   systemInitialization
 );
 

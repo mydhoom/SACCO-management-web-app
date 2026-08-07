@@ -8,6 +8,7 @@ const memberSchema = new mongoose.Schema({
   phone: { type: String, required: true },
   dateJoined: { type: Date, default: Date.now },
   active: { type: Boolean, default: true },
+  upiId: { type: String, default: null }, // Added UPI ID
 });
 
 module.exports = mongoose.model("Member", memberSchema);

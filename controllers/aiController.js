@@ -304,3 +304,136 @@ Rules:
     res.status(500).json({ error: `AI service (${getActiveProvider()}) encountered an error: ${error.message}` });
   }
 };
+
+// ============================================================
+// 3. AI EXCEL MAPPING — Maps uploaded Excel headers to DB schema
+// ============================================================
+module.exports.handleAiExcelMapping = async (req, res) => {
+  try {
+    const { headers, sampleRows, targetSchema } = req.body;
+    
+    if (!headers || !targetSchema) {
+      return res.status(400).json({ error: "Missing required fields (headers or targetSchema)." });
+    }
+
+    const provider = getActiveProvider();
+    if (!provider) {
+      return res.status(503).json({ error: "No AI provider is configured on the server." });
+    }
+
+    const systemPrompt = `You are a strict data mapping API. 
+Your job is to map columns from a user-uploaded Excel file to the system's target schema.
+You will receive:
+1. Target System Schema (The required fields).
+2. Uploaded Excel Headers.
+3. Sample Data Rows (to help you infer context).
+
+Return ONLY a valid JSON object representing the mapping. Do not include markdown code blocks like \`\`\`json. 
+The keys must be the Target System Schema fields.
+The values must be the matching Uploaded Excel Header string exactly as provided, or null if no match is found.
+Example Output:
+{
+  "Vendor_No": "Emp ID",
+  "Full_Name": "Employee Name",
+  "Opening_Share_Balance": "Share Amount"
+}`;
+
+    const userPrompt = `
+TARGET SCHEMA FIELDS:
+${JSON.stringify(targetSchema)}
+
+UPLOADED EXCEL HEADERS:
+${JSON.stringify(headers)}
+
+SAMPLE ROWS (first 3):
+${JSON.stringify(sampleRows)}
+
+Please map the UPLOADED EXCEL HEADERS to the TARGET SCHEMA FIELDS.`;
+
+    let reply = '';
+
+    // ---- GEMINI ----
+    if (provider === 'GEMINI') {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      let lastError;
+      for (const model of GEMINI_MODELS) {
+        try {
+          const chat = ai.chats.create({
+            model,
+            config: { 
+              systemInstruction: systemPrompt,
+              responseMimeType: "application/json"
+            }
+          });
+          const response = await chat.sendMessage({ message: userPrompt });
+          reply = response.text || '';
+          console.log(`AI Mapping: Gemini responded using model: ${model}`);
+          break;
+        } catch (err) {
+          console.warn(`Gemini model ${model} failed for mapping: ${err.message}`);
+          lastError = err;
+        }
+      }
+      if (!reply) throw lastError;
+
+    // ---- GROQ ----
+    } else if (provider === 'GROQ') {
+      const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ];
+      let lastError;
+      for (const model of GROQ_MODELS) {
+        try {
+          const completion = await groq.chat.completions.create({
+            messages,
+            model,
+            temperature: 0.1,
+            response_format: { type: "json_object" }
+          });
+          reply = completion.choices[0]?.message?.content || '';
+          console.log(`AI Mapping: Groq responded using model: ${model}`);
+          break;
+        } catch (err) {
+          console.warn(`Groq model ${model} failed for mapping: ${err.message}`);
+          lastError = err;
+        }
+      }
+      if (!reply) throw lastError;
+    }
+
+    // Robust JSON extraction to handle any conversational text wrapping
+    let extractedJson = reply;
+    let jsonMatch = reply.match(/```json([\s\S]*?)```/);
+    if (jsonMatch) {
+      extractedJson = jsonMatch[1].trim();
+    } else {
+      jsonMatch = reply.match(/```([\s\S]*?)```/);
+      if (jsonMatch) {
+        extractedJson = jsonMatch[1].trim();
+      } else {
+        const firstBrace = reply.indexOf('{');
+        const lastBrace = reply.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1) {
+          extractedJson = reply.substring(firstBrace, lastBrace + 1);
+        }
+      }
+    }
+
+    const mapping = JSON.parse(extractedJson);
+
+    res.json({
+      success: true,
+      mapping,
+      provider
+    });
+
+  } catch (error) {
+    console.error('AI Mapping Error:', error);
+    res.status(500).json({ error: `AI Mapping failed (${getActiveProvider()}): ${error.message}` });
+  }
+};
+
+module.exports.getAiContext = module.exports.getAiContext || getAiContext;
+module.exports.handleAiChat = module.exports.handleAiChat || handleAiChat;
