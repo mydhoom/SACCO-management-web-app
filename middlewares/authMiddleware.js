@@ -6,7 +6,8 @@ exports.authenticate = (req, res, next) => {
   if (!token) return res.status(401).json({ error: "Access Denied!" });
 
   try {
-    const verified = jwt.verify(token, process.env.JWT_SECRET);
+    const jwtSecret = process.env.JWT_SECRET || 'sacco_super_secret_key';
+    const verified = jwt.verify(token, jwtSecret);
     req.user = verified;
     next();
   } catch (error) {
