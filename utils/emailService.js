@@ -5,8 +5,8 @@ require('dotenv').config();
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: process.env.EMAIL_USER || 'your-society@gmail.com', // Replace via .env
-    pass: process.env.EMAIL_PASS || 'your-app-password',      // Replace via .env
+    user: process.env.EMAIL_USER || 'mahadevsociety2026@gmail.com', // Replaced with actual email
+    pass: process.env.EMAIL_PASS || 'your-app-password',            // MUST be set via .env
   },
 });
 
@@ -49,7 +49,7 @@ exports.sendWelcomeEmail = async (email, name, vendorNo, plainPassword) => {
 
   try {
     await transporter.sendMail({
-      from: `"Mahadev Society" <${process.env.EMAIL_USER || 'noreply@mahadevsociety.com'}>`,
+      from: `"Mahadev Society" <${process.env.EMAIL_USER || 'mahadevsociety2026@gmail.com'}>`,
       to: email,
       subject: 'Welcome to Mahadev Society - Your Account is Ready',
       html: getHtmlTemplate('Account Activated', content)
@@ -84,7 +84,7 @@ exports.sendLoanNotification = async (email, name, amount, status) => {
 
   try {
     await transporter.sendMail({
-      from: `"Mahadev Society" <${process.env.EMAIL_USER || 'noreply@mahadevsociety.com'}>`,
+      from: `"Mahadev Society" <${process.env.EMAIL_USER || 'mahadevsociety2026@gmail.com'}>`,
       to: email,
       subject: `Loan Application ${statusText}`,
       html: getHtmlTemplate('Loan Application Update', content)
@@ -142,7 +142,7 @@ exports.sendReceipt = async (email, name, amount, category, entryType, txnRef = 
 
   try {
     await transporter.sendMail({
-      from: `"Mahadev Society" <${process.env.EMAIL_USER || 'noreply@mahadevsociety.com'}>`,
+      from: `"Mahadev Society" <${process.env.EMAIL_USER || 'mahadevsociety2026@gmail.com'}>`,
       to: email,
       subject: `E-Receipt: ${displayCategory} — ${formattedAmount}`,
       html: getHtmlTemplate('Transaction E-Receipt', content)
