@@ -225,12 +225,16 @@ exports.getDefaulters = async (req, res) => {
 // ============================================================
 exports.getMemberDashboard = async (req, res) => {
   try {
-    const vendorNo = req.user?.vendorNo;
-    if (!vendorNo) return res.status(401).json({ message: 'Unauthorized.' });
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ message: 'Unauthorized.' });
 
-    const [profile, loanHistory, shareHistory] = await Promise.all([
-      User.findOne({ vendorNo }).select('-password').lean(),
+    // Find user first to get their vendorNo
+    const profile = await User.findById(userId).select('-password').lean();
+    if (!profile) return res.status(404).json({ message: 'Member not found.' });
 
+    const vendorNo = profile.vendorNo;
+
+    const [loanHistory, shareHistory] = await Promise.all([
       TransactionLog.find({
         vendorNo,
         category: { $in: ['LOAN_EMI', 'LOAN_REPAYMENT', 'LOAN_DISBURSEMENT'] },
