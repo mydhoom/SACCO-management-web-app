@@ -146,6 +146,12 @@ exports.updateLoanStatus = async (req, res) => {
       await LedgerService.executeDoubleEntry(transactionsToLog, `Loan Disbursement Approved - Share via ${paymentMethod.replace(/_/g, ' ')}`);
     }
 
+    // Send Email Notification
+    if (fetchedUser && fetchedUser.emailId && (status === 'APPROVED' || status === 'REJECTED')) {
+      const { sendLoanNotification } = require('../utils/emailService');
+      sendLoanNotification(fetchedUser.emailId, fetchedUser.name, grossAmount, status);
+    }
+
     res.status(200).json({ message: "Loan status updated and ledger entries created!", loan });
   } catch (error) {
     console.error("Backend Error:", error);
@@ -332,6 +338,12 @@ exports.processEMI = async (req, res) => {
     const description = isFinalSettlement ? 'Full & Final Principal Settlement' : `Monthly EMI Repayment (${paymentMode})`;
     const savedTransactions = await LedgerService.executeDoubleEntry(newTransactions, description);
     
+    // Send Email Receipt
+    if (fetchedUserEmi && fetchedUserEmi.emailId && txStatus === 'COMPLETED') {
+      const { sendReceipt } = require('../utils/emailService');
+      sendReceipt(fetchedUserEmi.emailId, fetchedUserEmi.name, totalDebitAmount, 'EMI_REPAYMENT', 'CREDIT');
+    }
+
     const newOutstandingBalance = parseFloat((outstandingPrincipal - principalRepayment).toFixed(2));
 
     if (txStatus === 'COMPLETED' && newOutstandingBalance <= 0) {

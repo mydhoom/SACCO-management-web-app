@@ -134,6 +134,8 @@ const getPendingUsers = async (req, res) => {
   }
 };
 
+const { sendWelcomeEmail } = require('../utils/emailService');
+
 const updateUserStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -141,6 +143,11 @@ const updateUserStatus = async (req, res) => {
 
     const user = await User.findByIdAndUpdate(id, { status: status }, { new: true });
     if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Send Welcome Email if approved
+    if (status === 'approved' && user.emailId) {
+      sendWelcomeEmail(user.emailId, user.name, user.vendorNo, 'Your Vendor Number (or the password you chose during registration)');
+    }
 
     res.status(200).json({ message: `User ${status} successfully` });
   } catch (error) {

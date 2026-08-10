@@ -299,6 +299,12 @@ exports.processDeposit = async (req, res) => {
       await savings.save();
     }
 
+    // Send Email Receipt
+    if (member && member.emailId) {
+      const { sendReceipt } = require('../utils/emailService');
+      sendReceipt(member.emailId, fullName, requestedAmount, dbCategory, dbEntryType);
+    }
+
     const successMessage = isWithdrawal
       ? 'Withdrawal request submitted successfully. An admin will clear it once funds are arranged.'
       : `${action || type} processed successfully for ${fullName} (Vendor: ${vendorNo}).`;
