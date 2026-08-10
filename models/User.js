@@ -43,6 +43,8 @@ const userSchema = new mongoose.Schema({
   remainingEmis: { type: Number, default: 0 },
   emiStartDate: { type: Date, default: null },
   emiEndDate: { type: Date, default: null },
+  nextEmiDueDate: { type: Date, default: null }, // NEW: Added for Defaulter Tracking
+  defaulterStatus: { type: Boolean, default: false }, // NEW: Added for Defaulter Tracking
 
   // --- 7. Withdrawal History ---
   withdrawalAmount: { type: Number, default: 0 },

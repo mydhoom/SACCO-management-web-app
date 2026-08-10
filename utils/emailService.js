@@ -151,3 +151,46 @@ exports.sendReceipt = async (email, name, amount, category, entryType, txnRef = 
     console.error(`Failed to send receipt to ${email}:`, error);
   }
 };
+
+exports.sendDefaulterReminderEmail = async (email, name, amountOverdue, daysOverdue, emiAmount) => {
+  if (!email) return;
+
+  const formattedAmount = `₹${new Intl.NumberFormat('en-IN').format(amountOverdue)}`;
+  const formattedEmi = `₹${new Intl.NumberFormat('en-IN').format(emiAmount)}`;
+
+  const content = `
+    <p>Dear <strong>${name}</strong>,</p>
+    <p>This is a polite reminder that your loan EMI payment is currently overdue by <strong>${daysOverdue} days</strong>.</p>
+    
+    <div style="background-color: #fff1f2; border-left: 4px solid #e11d48; padding: 16px; margin: 24px 0;">
+      <p style="margin: 0 0 8px 0; color: #9f1239;"><strong>Overdue Details:</strong></p>
+      <table style="width: 100%; border-collapse: collapse; font-size: 15px; margin: 0;">
+        <tr>
+          <td style="padding: 4px 0; color: #4c0519;">Total Overdue:</td>
+          <td style="padding: 4px 0; text-align: right; font-weight: 700; color: #e11d48;">${formattedAmount}</td>
+        </tr>
+        <tr>
+          <td style="padding: 4px 0; color: #4c0519;">Monthly EMI:</td>
+          <td style="padding: 4px 0; text-align: right; font-weight: 600; color: #4c0519;">${formattedEmi}</td>
+        </tr>
+        <tr>
+          <td style="padding: 4px 0; color: #4c0519;">Days Late:</td>
+          <td style="padding: 4px 0; text-align: right; font-weight: 600; color: #e11d48;">${daysOverdue}</td>
+        </tr>
+      </table>
+    </div>
+    
+    <p>Please clear your pending dues immediately to avoid further penalty charges. If you have already made the payment, kindly ignore this email or contact the society administrators to update your ledger.</p>
+  `;
+
+  try {
+    await transporter.sendMail({
+      from: `"Mahadev Society" <${process.env.EMAIL_USER || 'mahadevsociety2026@gmail.com'}>`,
+      to: email,
+      subject: `URGENT: Loan EMI Overdue Notice`,
+      html: getHtmlTemplate('Overdue Payment Reminder', content)
+    });
+  } catch (error) {
+    console.error(`Failed to send defaulter reminder to ${email}:`, error);
+  }
+};

@@ -142,6 +142,28 @@ exports.updateLoanStatus = async (req, res) => {
         relatedLoanId: loan._id, batchId: batchId
       });
 
+      // Update User object balances & EMI dates on approval
+      if (fetchedUser) {
+        fetchedUser.activeLoanAmount = (fetchedUser.activeLoanAmount || 0) + grossAmount;
+        fetchedUser.pendingLoanBalance = (fetchedUser.pendingLoanBalance || 0) + grossAmount;
+        
+        const monthlyRate = ((loan.interestRate || 10) / 100) / 12;
+        const totalMonths = loan.tenure || 12;
+        // Simple EMI estimate for caching (can be overridden manually)
+        fetchedUser.monthlyEmiAmount = Math.round((grossAmount * monthlyRate * Math.pow(1 + monthlyRate, totalMonths)) / (Math.pow(1 + monthlyRate, totalMonths) - 1));
+        
+        fetchedUser.emiStartDate = new Date();
+        const endD = new Date();
+        endD.setMonth(endD.getMonth() + totalMonths);
+        fetchedUser.emiEndDate = endD;
+        
+        const nextD = new Date();
+        nextD.setMonth(nextD.getMonth() + 1);
+        fetchedUser.nextEmiDueDate = nextD;
+
+        await fetchedUser.save();
+      }
+
       const LedgerService = require('../services/LedgerService'); 
       await LedgerService.executeDoubleEntry(transactionsToLog, `Loan Disbursement Approved - Share via ${paymentMethod.replace(/_/g, ' ')}`);
     }
@@ -347,11 +369,33 @@ exports.processEMI = async (req, res) => {
 
     const newOutstandingBalance = parseFloat((outstandingPrincipal - principalRepayment).toFixed(2));
 
-    if (txStatus === 'COMPLETED' && newOutstandingBalance <= 0) {
-      await Loan.findOneAndUpdate(
-        { memberId: targetMemberId, status: { $in: ['APPROVED', 'PENDING'] } }, 
-        { status: 'CLOSED' }
-      );
+    if (txStatus === 'COMPLETED') {
+      if (fetchedUserEmi) {
+        fetchedUserEmi.pendingLoanBalance = newOutstandingBalance;
+        if (newOutstandingBalance <= 0) {
+          fetchedUserEmi.activeLoanAmount = 0;
+          fetchedUserEmi.nextEmiDueDate = null;
+          fetchedUserEmi.emiStartDate = null;
+          fetchedUserEmi.emiEndDate = null;
+          fetchedUserEmi.defaulterStatus = false;
+        } else {
+          // Advance the EMI due date by 1 month
+          if (fetchedUserEmi.nextEmiDueDate) {
+            const nextD = new Date(fetchedUserEmi.nextEmiDueDate);
+            nextD.setMonth(nextD.getMonth() + 1);
+            fetchedUserEmi.nextEmiDueDate = nextD;
+          }
+          fetchedUserEmi.defaulterStatus = false; // Reset defaulter status since they just paid
+        }
+        await fetchedUserEmi.save();
+      }
+
+      if (newOutstandingBalance <= 0) {
+        await Loan.findOneAndUpdate(
+          { memberId: targetMemberId, status: { $in: ['APPROVED', 'PENDING'] } }, 
+          { status: 'CLOSED' }
+        );
+      }
     }
 
     res.status(200).json({

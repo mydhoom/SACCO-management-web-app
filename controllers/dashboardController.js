@@ -181,34 +181,65 @@ exports.getDashboardKPIs = async (req, res) => {
 // ============================================================
 exports.getDefaulters = async (req, res) => {
   try {
+    const today = new Date();
     const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - 35); // 35-day window
+    cutoffDate.setDate(cutoffDate.getDate() - 35);
 
     // Find all members with an active loan
     const membersWithLoans = await User.find({
       status: 'approved',
       pendingLoanBalance: { $gt: 0 },
       monthlyEmiAmount: { $gt: 0 }
-    }).select('vendorNo name pendingLoanBalance monthlyEmiAmount designation circle').lean();
+    }).select('vendorNo name pendingLoanBalance monthlyEmiAmount nextEmiDueDate emailId phoneNumber designation').lean();
 
     if (membersWithLoans.length === 0) {
-      return res.status(200).json({ success: true, data: [] });
+      return res.status(200).json({ success: true, count: 0, data: [] });
     }
 
     const vendorNos = membersWithLoans.map(m => m.vendorNo);
 
-    // Find members who DID pay EMI in the last 35 days
+    // Find members who DID pay EMI in the last 35 days (fallback for legacy records without nextEmiDueDate)
     const recentEmiPayers = await TransactionLog.distinct('vendorNo', {
       vendorNo: { $in: vendorNos },
-      category: 'LOAN_EMI',
+      category: 'LOAN_REPAYMENT',
       status: 'COMPLETED',
       transactionDate: { $gte: cutoffDate }
     });
 
     const recentPayerSet = new Set(recentEmiPayers);
 
-    // Defaulters are members with active loans but NOT in the recent payer set
-    const defaulters = membersWithLoans.filter(m => !recentPayerSet.has(m.vendorNo));
+    const defaulters = membersWithLoans.map(m => {
+      let isDefaulter = false;
+      let daysOverdue = 0;
+      
+      if (m.nextEmiDueDate) {
+        if (new Date(m.nextEmiDueDate) < today) {
+          isDefaulter = true;
+          daysOverdue = Math.floor((today - new Date(m.nextEmiDueDate)) / (1000 * 60 * 60 * 24));
+        }
+      } else {
+        // Fallback for CSV imported users without precise due dates
+        if (!recentPayerSet.has(m.vendorNo)) {
+          isDefaulter = true;
+          daysOverdue = 35; // Default legacy assumption
+        }
+      }
+
+      if (isDefaulter) {
+        const missedEmis = Math.max(1, Math.floor(daysOverdue / 30));
+        return {
+          ...m,
+          daysOverdue,
+          missedEmis,
+          overdueAmount: m.monthlyEmiAmount * missedEmis,
+          riskLevel: daysOverdue > 60 ? 'Critical' : (daysOverdue > 30 ? 'High' : 'Warning')
+        };
+      }
+      return null;
+    }).filter(m => m !== null);
+
+    // Sort by risk (most days overdue first)
+    defaulters.sort((a, b) => b.daysOverdue - a.daysOverdue);
 
     res.status(200).json({ success: true, count: defaulters.length, data: defaulters });
 
@@ -268,5 +299,31 @@ exports.getMemberDashboard = async (req, res) => {
   } catch (error) {
     console.error('Member Dashboard Error:', error);
     res.status(500).json({ success: false, message: 'Failed to load member dashboard.', error: error.message });
+  }
+};
+
+// ============================================================
+// 4. SEND DEFAULTER REMINDER EMAIL
+// ============================================================
+exports.sendDefaulterReminder = async (req, res) => {
+  try {
+    const { vendorNo, daysOverdue, overdueAmount, emiAmount } = req.body;
+    
+    if (!vendorNo) return res.status(400).json({ success: false, message: 'Vendor Number is required.' });
+
+    const user = await User.findOne({ vendorNo });
+    if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+
+    if (!user.emailId) {
+      return res.status(400).json({ success: false, message: 'User does not have an email address registered.' });
+    }
+
+    const { sendDefaulterReminderEmail } = require('../utils/emailService');
+    await sendDefaulterReminderEmail(user.emailId, user.name, overdueAmount, daysOverdue, emiAmount);
+
+    res.status(200).json({ success: true, message: `Reminder email sent successfully to ${user.name}.` });
+  } catch (error) {
+    console.error('Failed to send reminder:', error);
+    res.status(500).json({ success: false, message: 'Failed to send reminder email.' });
   }
 };
