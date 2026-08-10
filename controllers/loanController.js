@@ -338,10 +338,11 @@ exports.processEMI = async (req, res) => {
     const description = isFinalSettlement ? 'Full & Final Principal Settlement' : `Monthly EMI Repayment (${paymentMode})`;
     const savedTransactions = await LedgerService.executeDoubleEntry(newTransactions, description);
     
-    // Send Email Receipt
-    if (fetchedUserEmi && fetchedUserEmi.emailId && txStatus === 'COMPLETED') {
+    // Send Email Receipt (always fires — txStatus is PENDING_VERIFICATION for cheque, COMPLETED for others)
+    if (fetchedUserEmi && fetchedUserEmi.emailId) {
       const { sendReceipt } = require('../utils/emailService');
-      sendReceipt(fetchedUserEmi.emailId, fetchedUserEmi.name, totalDebitAmount, 'EMI_REPAYMENT', 'CREDIT');
+      const txnId = savedTransactions?.[0]?.transactionId || null;
+      sendReceipt(fetchedUserEmi.emailId, fetchedUserEmi.name, totalDebitAmount, 'EMI_REPAYMENT', 'CREDIT', txnId);
     }
 
     const newOutstandingBalance = parseFloat((outstandingPrincipal - principalRepayment).toFixed(2));

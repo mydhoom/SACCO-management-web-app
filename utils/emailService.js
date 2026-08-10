@@ -94,12 +94,18 @@ exports.sendLoanNotification = async (email, name, amount, status) => {
   }
 };
 
-exports.sendReceipt = async (email, name, amount, category, entryType) => {
+exports.sendReceipt = async (email, name, amount, category, entryType, txnRef = null) => {
   if (!email) return;
 
   const isCredit = entryType.toUpperCase() === 'CREDIT';
   const formattedAmount = `₹${new Intl.NumberFormat('en-IN').format(amount)}`;
   const displayCategory = category.replace(/_/g, ' ');
+  const now = new Date();
+  const formattedDate = now.toLocaleString('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: true
+  });
+  const ref = txnRef || `TXN-${Date.now()}`;
 
   const content = `
     <p>Dear <strong>${name}</strong>,</p>
@@ -114,15 +120,31 @@ exports.sendReceipt = async (email, name, amount, category, entryType) => {
         ${displayCategory}
       </div>
     </div>
+
+    <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin: 0 0 24px 0;">
+      <tr style="border-bottom: 1px solid #e2e8f0;">
+        <td style="padding: 10px 0; color: #64748b;">Date &amp; Time</td>
+        <td style="padding: 10px 0; text-align: right; font-weight: 600; color: #0f172a;">${formattedDate}</td>
+      </tr>
+      <tr style="border-bottom: 1px solid #e2e8f0;">
+        <td style="padding: 10px 0; color: #64748b;">Reference No.</td>
+        <td style="padding: 10px 0; text-align: right; font-weight: 600; color: #0f172a; font-family: monospace;">${ref}</td>
+      </tr>
+      <tr>
+        <td style="padding: 10px 0; color: #64748b;">Type</td>
+        <td style="padding: 10px 0; text-align: right; font-weight: 600; color: ${isCredit ? '#10b981' : '#ef4444'}">${isCredit ? 'CREDIT' : 'DEBIT'}</td>
+      </tr>
+    </table>
     
     <p>You can view your updated balances and full transaction history by logging into the Member Portal.</p>
+    <p style="font-size: 12px; color: #94a3b8;">Please quote the Reference No. when contacting the society office regarding this transaction.</p>
   `;
 
   try {
     await transporter.sendMail({
       from: `"Mahadev Society" <${process.env.EMAIL_USER || 'noreply@mahadevsociety.com'}>`,
       to: email,
-      subject: `Transaction Receipt - ${displayCategory}`,
+      subject: `E-Receipt: ${displayCategory} — ${formattedAmount}`,
       html: getHtmlTemplate('Transaction E-Receipt', content)
     });
   } catch (error) {

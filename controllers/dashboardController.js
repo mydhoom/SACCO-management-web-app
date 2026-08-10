@@ -248,8 +248,6 @@ exports.getMemberDashboard = async (req, res) => {
       }).sort({ transactionDate: -1 }).limit(24).lean(),
     ]);
 
-    if (!profile) return res.status(404).json({ message: 'Member not found.' });
-
     // Calculate EMI repayment progress percentage
     const totalLoan = profile.activeLoanAmount || 0;
     const remaining = profile.pendingLoanBalance || 0;

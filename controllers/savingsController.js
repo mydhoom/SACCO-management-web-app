@@ -302,7 +302,7 @@ exports.processDeposit = async (req, res) => {
     // Send Email Receipt
     if (member && member.emailId) {
       const { sendReceipt } = require('../utils/emailService');
-      sendReceipt(member.emailId, fullName, requestedAmount, dbCategory, dbEntryType);
+      sendReceipt(member.emailId, fullName, requestedAmount, dbCategory, dbEntryType, newTransaction.transactionId);
     }
 
     const successMessage = isWithdrawal
