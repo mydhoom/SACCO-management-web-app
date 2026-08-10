@@ -23,6 +23,7 @@ const dividendRoutes = require("./routes/dividendRoutes");
 const reconciliationRoutes = require("./routes/reconciliation"); // NEW: Added Reconciliation Route
 const aiRoutes = require("./routes/aiRoutes"); // AI Financial Assistant
 const correctionRoutes = require("./routes/correctionRoutes"); // Correction Manager
+const dashboardRoutes = require("./routes/dashboardRoutes"); // Analytics Dashboard
 
 // Initialize Database Connection
 connectDB();
@@ -59,6 +60,7 @@ app.use("/api/incentives", incentiveRoutes);
 app.use("/api/reconciliation", reconciliationRoutes);
 app.use("/api/ai", aiRoutes); // AI Financial Assistant
 app.use("/api/corrections", correctionRoutes); // Correction Manager (Reversal + Edit + Event Log)
+app.use("/api/dashboard", dashboardRoutes); // Analytics Dashboard & KPIs
 
 // ==========================================
 // 3. FALLBACK & ERROR HANDLING
