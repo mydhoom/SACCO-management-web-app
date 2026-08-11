@@ -5,6 +5,7 @@ import Approvals from './views/admin/Approvals.jsx'
 import MyPassbooks from './views/members/MyPassbooks'
 
 // --- Lazy Imports (non-critical, load on demand) ---
+const Member360Monitor = lazy(() => import('./views/admin/Member360Monitor.jsx'))
 const AdminClearanceDashboard = lazy(() => import('./views/admin/AdminClearanceDashboard.jsx'))
 const MasterJournal = lazy(() => import('./views/admin/MasterJournal'))
 const Dashboard = lazy(() => import('./views/dashboard/Dashboard'))
@@ -55,6 +56,7 @@ export const routes = [
   { path: '/my-accounts/loan-calculator', name: 'Loan Calculator', element: LoanCalculator },
 
   // Administration
+  { path: '/admin/member-360', name: 'Member 360 Monitor', element: Member360Monitor },
   { path: '/admin/clearances', name: 'Financial Clearances', element: AdminClearanceDashboard },
   { path: '/admin/directory', name: 'Society Directory', element: SocietyDirectory },
   { path: '/admin/upload', name: 'Update Data', element: UpdateData },

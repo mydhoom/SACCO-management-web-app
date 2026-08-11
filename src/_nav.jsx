@@ -54,6 +54,13 @@ const getNavItems = (currentUserRole) => [
     },
     {
       component: CNavItem,
+      name: 'Member 360 Monitor',
+      to: '/admin/member-360',
+      icon: <CIcon icon={cilPeople} customClassName="nav-icon" />,
+      badge: { color: 'info', text: 'Live' },
+    },
+    {
+      component: CNavItem,
       name: 'Pending Approvals',
       to: '/admin/approvals',
       icon: <CIcon icon={cilUserPlus} customClassName="nav-icon" />,
