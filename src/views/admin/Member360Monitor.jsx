@@ -239,6 +239,7 @@ const Member360Monitor = () => {
     doc.text(`Designation: ${selectedMember.designation || 'N/A'}`, 300, 94)
     doc.text(`Generated Date: ${new Date().toLocaleDateString('en-IN')}`, 300, 108)
 
+    // Table 1: Financial Metrics Overview
     const summaryRows = [
       ['Share Capital', `Rs. ${(selectedMember.currentShareMoneyTotal || 0).toLocaleString('en-IN')}`],
       ['RD Balance', `Rs. ${(selectedMember.rdBalance || 0).toLocaleString('en-IN')}`],
@@ -251,25 +252,67 @@ const Member360Monitor = () => {
       head: [['Financial Metric', 'Current Value']],
       body: summaryRows,
       startY: 122,
-      styles: { fontSize: 9.5, cellPadding: 5 },
+      styles: { fontSize: 9, cellPadding: 4 },
       headStyles: { fillColor: [30, 60, 114] }
     })
 
-    if (rdTransactions.length > 0) {
+    let currentY = doc.lastAutoTable.finalY + 22
+
+    // Table 2: Loan Accounts Portfolio (ALL LOANS)
+    if (loans.length > 0) {
       doc.setFontSize(11)
       doc.setFont('helvetica', 'bold')
       doc.setTextColor(30, 60, 114)
-      doc.text("Recent RD & Savings Ledger", 40, doc.lastAutoTable.finalY + 22)
+      doc.text(`Loan Accounts & Outstanding Portfolio (${loans.length} Loans)`, 40, currentY)
+
+      const loanRows = loans.map(loan => {
+        const amount = Number(loan.loanAmount || 0)
+        const pending = Number(loan.principalPending !== undefined ? loan.principalPending : loan.loanAmount || 0)
+        const issueDate = loan.startDate || loan.issueDate || loan.createdAt
+        return [
+          loan.loanId || `LN-${loan._id}`,
+          issueDate ? new Date(issueDate).toLocaleDateString('en-IN') : '-',
+          `Rs. ${amount.toLocaleString('en-IN')}`,
+          `Rs. ${pending.toLocaleString('en-IN')}`,
+          `${loan.tenure || 12} Mos`,
+          loan.status
+        ]
+      })
+
+      autoTable(doc, {
+        head: [['Loan ID', 'Issue Date', 'Sanctioned Amount', 'Principal Pending', 'Tenure', 'Status']],
+        body: loanRows,
+        startY: currentY + 10,
+        styles: { fontSize: 8.5, cellPadding: 4 },
+        headStyles: { fillColor: [42, 82, 152] }
+      })
+
+      currentY = doc.lastAutoTable.finalY + 22
+    }
+
+    // Table 3: RD & Savings Ledger
+    if (rdTransactions.length > 0) {
+      if (currentY > 700) {
+        doc.addPage()
+        currentY = 40
+      }
+
+      doc.setFontSize(11)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(30, 60, 114)
+      doc.text("Recent RD & Savings Ledger", 40, currentY)
+
       const rdRows = rdTransactions.slice(0, 15).map(tx => [
         new Date(tx.transactionDate || tx.createdAt).toLocaleDateString('en-IN'),
         tx.description || tx.category,
         tx.entryType === 'CREDIT' ? `Rs. ${Number(tx.amount).toLocaleString('en-IN')}` : '-',
         tx.entryType === 'DEBIT' ? `Rs. ${Number(tx.amount).toLocaleString('en-IN')}` : '-'
       ])
+
       autoTable(doc, {
         head: [['Date', 'Description', 'Credit (IN)', 'Debit (OUT)']],
         body: rdRows,
-        startY: doc.lastAutoTable.finalY + 30,
+        startY: currentY + 10,
         styles: { fontSize: 8.5, cellPadding: 4 }
       })
     }
