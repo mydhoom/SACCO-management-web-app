@@ -377,55 +377,62 @@ const Member360Monitor = () => {
       ) : selectedMember ? (
         <>
           {/* PROFILE KPI HEADER CARD */}
-          <CCard className="mb-4 shadow-sm border-0" style={{ background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)', color: 'white' }}>
+          <CCard className="mb-4 shadow-sm border-0" style={{ background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)', color: '#ffffff' }}>
             <CCardBody className="p-4">
               <CRow className="align-items-center">
                 <CCol md={6} className="mb-3 mb-md-0">
                   <div className="d-flex align-items-center">
                     <div style={{
                       width: '64px', height: '64px', borderRadius: '50%',
-                      background: 'rgba(255,255,255,0.2)', display: 'flex',
+                      background: 'rgba(255,255,255,0.25)', display: 'flex',
                       alignItems: 'center', justifyContent: 'center',
-                      fontSize: '1.5rem', fontWeight: 'bold', marginRight: '1rem'
+                      fontSize: '1.6rem', fontWeight: 'bold', marginRight: '1rem',
+                      color: '#ffffff', border: '2px solid rgba(255,255,255,0.4)'
                     }}>
                       {selectedMember.name ? selectedMember.name.charAt(0).toUpperCase() : 'M'}
                     </div>
                     <div>
-                      <h3 className="fw-bold mb-1">{selectedMember.name}</h3>
-                      <div className="opacity-75 small">Vendor No: <strong>{selectedMember.vendorNo}</strong> | {selectedMember.designation || 'Member'}</div>
-                      <div className="opacity-75 small">{selectedMember.circle || 'Shimla Circle'} — {selectedMember.division || 'City Division'}</div>
+                      <h2 className="fw-bold mb-1 text-white" style={{ color: '#ffffff', fontSize: '1.75rem', letterSpacing: '0.5px' }}>
+                        {selectedMember.name}
+                      </h2>
+                      <div className="small" style={{ color: 'rgba(255, 255, 255, 0.9)', fontSize: '0.95rem' }}>
+                        Vendor No: <strong className="text-white">{selectedMember.vendorNo}</strong> | {selectedMember.designation || 'Member'}
+                      </div>
+                      <div className="small" style={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                        {selectedMember.circle || 'Shimla Circle'} — {selectedMember.division || 'City Division'}
+                      </div>
                     </div>
                   </div>
                 </CCol>
 
                 <CCol md={6} className="text-md-end">
-                  <CBadge color={selectedMember.defaulterStatus ? 'danger' : 'success'} className="px-3 py-2 fs-6 me-2">
+                  <CBadge color={selectedMember.defaulterStatus ? 'danger' : 'success'} className="px-3 py-2 fs-6 me-2 shadow-sm">
                     {selectedMember.defaulterStatus ? '⚠ Defaulter Alert' : '✓ Good Standing'}
                   </CBadge>
-                  <CBadge color="light" className="px-3 py-2 fs-6 text-dark">
+                  <CBadge color="light" className="px-3 py-2 fs-6 text-dark shadow-sm">
                     Role: {selectedMember.role?.toUpperCase() || 'MEMBER'}
                   </CBadge>
                 </CCol>
               </CRow>
 
-              <hr style={{ borderColor: 'rgba(255,255,255,0.2)' }} />
+              <hr style={{ borderColor: 'rgba(255,255,255,0.25)' }} />
 
               <CRow className="text-center g-3">
                 <CCol xs={6} md={3}>
-                  <div className="opacity-75 small fw-semibold">Share Capital</div>
-                  <h4 className="fw-bold text-white mb-0">₹{(selectedMember.currentShareMoneyTotal || 0).toLocaleString('en-IN')}</h4>
+                  <div className="small fw-bold" style={{ color: 'rgba(255,255,255,0.85)' }}>Share Capital</div>
+                  <h4 className="fw-bold text-white mb-0" style={{ color: '#ffffff' }}>₹{(selectedMember.currentShareMoneyTotal || 0).toLocaleString('en-IN')}</h4>
                 </CCol>
                 <CCol xs={6} md={3}>
-                  <div className="opacity-75 small fw-semibold">RD Balance</div>
+                  <div className="small fw-bold" style={{ color: 'rgba(255,255,255,0.85)' }}>RD Balance</div>
                   <h4 className="fw-bold text-warning mb-0">₹{(selectedMember.rdBalance || 0).toLocaleString('en-IN')}</h4>
                 </CCol>
                 <CCol xs={6} md={3}>
-                  <div className="opacity-75 small fw-semibold">Loan Outstanding</div>
+                  <div className="small fw-bold" style={{ color: 'rgba(255,255,255,0.85)' }}>Loan Outstanding</div>
                   <h4 className="fw-bold text-info mb-0">₹{totalOutstanding.toLocaleString('en-IN')}</h4>
                 </CCol>
                 <CCol xs={6} md={3}>
-                  <div className="opacity-75 small fw-semibold">Monthly EMI / RD</div>
-                  <h4 className="fw-bold text-light mb-0">₹{((selectedMember.monthlyEmiAmount || 0) + (selectedMember.monthlyRDAmount || 0)).toLocaleString('en-IN')}</h4>
+                  <div className="small fw-bold" style={{ color: 'rgba(255,255,255,0.85)' }}>Monthly EMI / RD</div>
+                  <h4 className="fw-bold text-light mb-0" style={{ color: '#ffffff' }}>₹{((selectedMember.monthlyEmiAmount || 0) + (selectedMember.monthlyRDAmount || 0)).toLocaleString('en-IN')}</h4>
                 </CCol>
               </CRow>
             </CCardBody>
