@@ -144,6 +144,29 @@ const transactionLogSchema = new mongoose.Schema({
 // CUSTOM TRANSACTION ID GENERATOR
 // ==========================================
 transactionLogSchema.pre('validate', function (next) {
+  // 0. ENFORCE STRICT FOLIO MAPPING FOR AUDIT INTEGRITY
+  if (!this.ledgerFolio && this.category) {
+    const FOLIO_MAP = {
+      'BANK_RECEIPT': '101', 'BANK_PAYOUT': '101',
+      'LOAN_ASSET': '152', 'LOAN_DISBURSEMENT': '152', 'LOAN_REPAYMENT': '152', 'LOAN_EMI': '152',
+      'INTEREST_INCOME': '153',
+      'RECURRING_DEPOSIT': '154', 'RD_LIABILITY': '154', 'RD_DEPOSIT': '154', 'RD_WITHDRAWAL': '154',
+      'SHARE_CAPITAL': '155',
+      'MONTHLY_THRIFT': '156', 
+      'HONORARIUM': '157', 'ADMISSION_FEE': '157', 'STATIONARY_MISC': '157', 'AUDIT_FEE': '157', 'PENALTY': '157',
+      'DIVIDEND_PAYOUT': '158',
+      'RESERVE_FUND': '159', 'EDUCATION_FUND': '159',
+      'WELFARE_FUND': '160',
+      'SUSPENSE_CLEARING': '999'
+    };
+    if (FOLIO_MAP[this.category]) {
+      this.ledgerFolio = FOLIO_MAP[this.category];
+    } else if (this.category !== 'REVERSAL') {
+      // Fallback
+      this.ledgerFolio = '999';
+    }
+  }
+
   // Only generate a new ID if this is a brand new transaction being created
   if (this.isNew) {
     // 1. Determine the Prefix based on the Category

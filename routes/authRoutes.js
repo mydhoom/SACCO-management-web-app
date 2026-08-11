@@ -25,6 +25,7 @@ router.post("/register", register);
 router.post("/login", login);
 router.post("/bulk-upload", authenticate, authorize(["admin"]), bulkUpload);
 router.get("/users", authenticate, getAllMembers);
+router.get("/directory", authenticate, getAllMembers);
 router.delete("/users/:vendorNo", authenticate, authorize(["admin"]), deleteMember);
 
 // --- NEW ADMIN ROUTES ---

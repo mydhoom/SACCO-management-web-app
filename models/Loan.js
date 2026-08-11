@@ -47,7 +47,7 @@ const loanSchema = new mongoose.Schema({
   },
   status: { 
     type: String, 
-    enum: ["PENDING", "APPROVED", "REJECTED", "REPAID", "CLOSED", "FINANCIAL_CLEARANCE"],
+    enum: ["PENDING", "APPROVED", "ACTIVE", "REJECTED", "REPAID", "CLOSED", "FINANCIAL_CLEARANCE"],
     default: "PENDING" 
   },
   workflowStatus: {

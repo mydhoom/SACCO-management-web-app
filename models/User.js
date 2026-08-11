@@ -7,7 +7,7 @@ const userSchema = new mongoose.Schema({
   societyAccountNo: { type: String, default: "" }, // NEW: Added from user image
   name: { type: String, required: true },
   password: { type: String, required: true },
-  role: { type: String, enum: ["admin", "member"], default: "member" },
+  role: { type: String, enum: ["admin", "executive", "member"], default: "member" },
   status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
   
   // --- 2. Professional & Departmental Details ---

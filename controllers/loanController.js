@@ -51,10 +51,19 @@ exports.updateLoanStatus = async (req, res) => {
     const paymentMethod = sharePaymentMethod || loan.sharePaymentMethod || 'DEDUCT_FROM_LOAN';
     const fetchedUser = await User.findById(loan.memberId);
     
-    // INJECTED: Apply Admin's modified loan terms from the frontend modal
     if (approvedAmount) loan.loanAmount = approvedAmount;
     if (interestRate) loan.interestRate = interestRate;
-    if (tenure) loan.tenure = tenure;
+    if (tenure) {
+      loan.tenure = tenure;
+      // Re-calculate endDate based on new tenure to validate against retirement
+      const newEndDate = new Date();
+      newEndDate.setMonth(newEndDate.getMonth() + Number(tenure));
+      loan.endDate = newEndDate;
+
+      if (fetchedUser && fetchedUser.dateOfRetirement && newEndDate > new Date(fetchedUser.dateOfRetirement)) {
+        return res.status(400).json({ error: "Approved loan tenure exceeds the member's Date of Retirement. Please reduce the tenure or increase EMI." });
+      }
+    }
 
     const grossAmount = loan.loanAmount;
     const finalShareDeduction = shareDeductionAmount || (grossAmount * 0.10); 
@@ -238,17 +247,29 @@ const PENALTY_CONFIG = {
 
 exports.processEMI = async (req, res) => {
   try {
-    const { vendorNo, emiAmount, annualInterestRate, isLatePayment, paymentMode, paymentDate, referenceNumber, documentProofUrl, loanId, remarks } = req.body;
+    const { vendorNo, emiAmount, annualInterestRate, isLatePayment, paymentMode, paymentDate, referenceNumber, documentProofUrl, remarks } = req.body;
     
     const LOAN_PRINCIPAL_FOLIO = '152'; 
     const LOAN_INTEREST_FOLIO = '153';  
     const BANK_RECEIPT_FOLIO = '101'; 
 
-    if (!vendorNo || !emiAmount || !annualInterestRate || !paymentMode) {
+    if (!vendorNo || !emiAmount || !paymentMode) {
       return res.status(400).json({ success: false, message: "Missing required EMI fields including Payment Mode." });
     }
 
     const txStatus = 'PENDING_VERIFICATION'; 
+
+    const fetchedUserEmi = await User.findOne({ vendorNo });
+    if (!fetchedUserEmi) {
+      return res.status(404).json({ success: false, message: "Member not found." });
+    }
+    const targetMemberId = fetchedUserEmi._id;
+
+    // Fetch all active/approved loans for the member, oldest first (FIFO)
+    const activeLoans = await Loan.find({
+      memberId: targetMemberId,
+      status: { $in: ['APPROVED', 'ACTIVE'] }
+    }).sort({ startDate: 1 });
 
     const loanTransactions = await TransactionLog.find({ 
       vendorNo: vendorNo, 
@@ -256,36 +277,29 @@ exports.processEMI = async (req, res) => {
       status: 'COMPLETED' 
     });
 
-    let outstandingPrincipal = 0;
+    // Calculate outstanding per loan
+    const outstandingByLoan = {};
+    let totalOutstanding = 0;
     loanTransactions.forEach(trx => {
+      const relId = trx.relatedLoanId ? trx.relatedLoanId.toString() : 'UNKNOWN';
+      if (!outstandingByLoan[relId]) outstandingByLoan[relId] = 0;
+      
       if (trx.entryType === 'DEBIT') {
-        outstandingPrincipal += trx.amount; 
+        outstandingByLoan[relId] += trx.amount; 
+        totalOutstanding += trx.amount;
       } else if (trx.entryType === 'CREDIT' && (trx.category === 'LOAN_REPAYMENT' || trx.category === 'CONTRA_ADJUSTMENT')) {
-        outstandingPrincipal -= trx.amount; 
+        outstandingByLoan[relId] -= trx.amount; 
+        totalOutstanding -= trx.amount;
       }
     });
 
-    if (outstandingPrincipal <= 0) {
+    if (totalOutstanding <= 0) {
       return res.status(400).json({ success: false, message: "No active loan balance found for this member." });
     }
 
-    const monthlyRate = (annualInterestRate / 100) / 12;
-    const interestForMonth = parseFloat((outstandingPrincipal * monthlyRate).toFixed(2));
-
-    let principalRepayment = parseFloat((emiAmount - interestForMonth).toFixed(2));
-    let isFinalSettlement = false;
-    
-    if (principalRepayment >= outstandingPrincipal) {
-      principalRepayment = outstandingPrincipal;
-      isFinalSettlement = true;
-    }
-
-    if (principalRepayment < 0) {
-       return res.status(400).json({ success: false, message: "EMI amount must cover the monthly interest due." });
-    }
-
     let penaltyAmount = 0;
-    if (isLatePayment && PENALTY_CONFIG.applyPenalty && !isFinalSettlement) {
+    // We omit isFinalSettlement logic for penalty since it's now distributed, but we can check if totalEMI clears totalOutstanding
+    if (isLatePayment && PENALTY_CONFIG.applyPenalty && emiAmount < totalOutstanding) {
       penaltyAmount = PENALTY_CONFIG.type === 'FLAT' 
         ? PENALTY_CONFIG.flatAmount 
         : parseFloat((emiAmount * PENALTY_CONFIG.percentageRate).toFixed(2));
@@ -295,16 +309,12 @@ exports.processEMI = async (req, res) => {
 
     const newTransactions = [];
     const batchId = `EMI-${uuidv4()}`;
-    const targetMemberId = loanTransactions[0].memberId;
-
-    const fetchedUserEmi = await User.findById(targetMemberId);
-    const exactMemberNameEmi = fetchedUserEmi ? (fetchedUserEmi.name || `${fetchedUserEmi.firstName || ''} ${fetchedUserEmi.lastName || ''}`.trim() || 'Unknown Member') : "-";
+    const exactMemberNameEmi = fetchedUserEmi.name || `${fetchedUserEmi.firstName || ''} ${fetchedUserEmi.lastName || ''}`.trim() || 'Unknown Member';
 
     const baseTx = {
       vendorNo: vendorNo,
       memberName: exactMemberNameEmi, 
       memberId: targetMemberId,
-      loanId: loanId, 
       status: txStatus,
       batchId: batchId,
       referenceNumber: referenceNumber || null,
@@ -313,6 +323,7 @@ exports.processEMI = async (req, res) => {
       documentProofUrl: documentProofUrl || null
     };
 
+    // 1. Log Bank Receipt for total amount
     newTransactions.push({
       ...baseTx,
       ledgerFolio: BANK_RECEIPT_FOLIO,
@@ -323,32 +334,11 @@ exports.processEMI = async (req, res) => {
       transactionId: `BANK-IN-${uuidv4()}`
     });
 
-    newTransactions.push({
-      ...baseTx,
-      ledgerFolio: LOAN_INTEREST_FOLIO, 
-      category: 'LOAN_EMI',
-      amount: interestForMonth,
-      entryType: 'CREDIT', 
-      paymentMode: 'INTERNAL_TRANSFER',
-      transactionId: `LOAN-INT-${uuidv4()}`
-    });
-
-    if (principalRepayment > 0) {
-      newTransactions.push({
-        ...baseTx,
-        ledgerFolio: LOAN_PRINCIPAL_FOLIO, 
-        category: 'LOAN_REPAYMENT',
-        amount: principalRepayment,
-        entryType: 'CREDIT', 
-        paymentMode: paymentMode, 
-        transactionId: `LOAN-PRN-${uuidv4()}`
-      });
-    }
-
+    // 2. Log Penalty (if any)
     if (penaltyAmount > 0) {
       newTransactions.push({
         ...baseTx,
-        ledgerFolio: LOAN_PRINCIPAL_FOLIO, 
+        ledgerFolio: LOAN_PRINCIPAL_FOLIO, // Keep existing folio or change if PENALTY uses '157'
         category: 'PENALTY',
         amount: penaltyAmount,
         entryType: 'CREDIT', 
@@ -357,58 +347,121 @@ exports.processEMI = async (req, res) => {
       });
     }
 
-    const description = isFinalSettlement ? 'Full & Final Principal Settlement' : `Monthly EMI Repayment (${paymentMode})`;
+    // 3. FIFO Distribution of emiAmount across active loans
+    let remainingEMI = emiAmount;
+    let totalInterestDeducted = 0;
+    let totalPrincipalReduced = 0;
+
+    for (const loan of activeLoans) {
+      if (remainingEMI <= 0) break;
+
+      let outstanding = outstandingByLoan[loan._id.toString()] || 0;
+      // If there are legacy transactions without relatedLoanId, apply them to the oldest loan
+      if (outstandingByLoan['UNKNOWN'] && outstandingByLoan['UNKNOWN'] !== 0) {
+        outstanding += outstandingByLoan['UNKNOWN'];
+        outstandingByLoan['UNKNOWN'] = 0; // Clear it out after applying
+      }
+
+      if (outstanding <= 0) {
+        if (txStatus === 'COMPLETED') {
+          await Loan.findByIdAndUpdate(loan._id, { status: 'CLOSED' });
+        }
+        continue;
+      }
+
+      const loanInterestRate = loan.interestRate || annualInterestRate || 10;
+      const monthlyRate = (loanInterestRate / 100) / 12;
+      const interestForMonth = parseFloat((outstanding * monthlyRate).toFixed(2));
+
+      let interestPaid = 0;
+      let principalPaid = 0;
+
+      if (remainingEMI >= interestForMonth) {
+        interestPaid = interestForMonth;
+        remainingEMI -= interestPaid;
+        principalPaid = Math.min(remainingEMI, outstanding);
+        remainingEMI -= principalPaid;
+      } else {
+        interestPaid = remainingEMI;
+        remainingEMI = 0;
+      }
+
+      if (interestPaid > 0) {
+        newTransactions.push({
+          ...baseTx,
+          ledgerFolio: LOAN_INTEREST_FOLIO, 
+          category: 'LOAN_EMI',
+          amount: parseFloat(interestPaid.toFixed(2)),
+          entryType: 'CREDIT', 
+          paymentMode: 'INTERNAL_TRANSFER',
+          transactionId: `LOAN-INT-${uuidv4()}`,
+          relatedLoanId: loan._id
+        });
+        totalInterestDeducted += interestPaid;
+      }
+
+      if (principalPaid > 0) {
+        newTransactions.push({
+          ...baseTx,
+          ledgerFolio: LOAN_PRINCIPAL_FOLIO, 
+          category: 'LOAN_REPAYMENT',
+          amount: parseFloat(principalPaid.toFixed(2)),
+          entryType: 'CREDIT', 
+          paymentMode: paymentMode, 
+          transactionId: `LOAN-PRN-${uuidv4()}`,
+          relatedLoanId: loan._id
+        });
+        totalPrincipalReduced += principalPaid;
+        outstanding -= principalPaid;
+      }
+
+      if (outstanding <= 0 && txStatus === 'COMPLETED') {
+        await Loan.findByIdAndUpdate(loan._id, { status: 'CLOSED' });
+      }
+    }
+
+    const description = `Monthly EMI Repayment (${paymentMode}) - Multi-Loan FIFO`;
     const savedTransactions = await LedgerService.executeDoubleEntry(newTransactions, description);
     
-    // Send Email Receipt (always fires — txStatus is PENDING_VERIFICATION for cheque, COMPLETED for others)
+    // Send Email Receipt
     if (fetchedUserEmi && fetchedUserEmi.emailId) {
       const { sendReceipt } = require('../utils/emailService');
       const txnId = savedTransactions?.[0]?.transactionId || null;
       sendReceipt(fetchedUserEmi.emailId, fetchedUserEmi.name, totalDebitAmount, 'EMI_REPAYMENT', 'CREDIT', txnId);
     }
 
-    const newOutstandingBalance = parseFloat((outstandingPrincipal - principalRepayment).toFixed(2));
+    const newOutstandingBalance = parseFloat((totalOutstanding - totalPrincipalReduced).toFixed(2));
 
     if (txStatus === 'COMPLETED') {
-      if (fetchedUserEmi) {
-        fetchedUserEmi.pendingLoanBalance = newOutstandingBalance;
-        if (newOutstandingBalance <= 0) {
-          fetchedUserEmi.activeLoanAmount = 0;
-          fetchedUserEmi.nextEmiDueDate = null;
-          fetchedUserEmi.emiStartDate = null;
-          fetchedUserEmi.emiEndDate = null;
-          fetchedUserEmi.defaulterStatus = false;
-        } else {
-          // Advance the EMI due date by 1 month
-          if (fetchedUserEmi.nextEmiDueDate) {
-            const nextD = new Date(fetchedUserEmi.nextEmiDueDate);
-            nextD.setMonth(nextD.getMonth() + 1);
-            fetchedUserEmi.nextEmiDueDate = nextD;
-          }
-          fetchedUserEmi.defaulterStatus = false; // Reset defaulter status since they just paid
-        }
-        await fetchedUserEmi.save();
-      }
-
+      fetchedUserEmi.pendingLoanBalance = newOutstandingBalance;
       if (newOutstandingBalance <= 0) {
-        await Loan.findOneAndUpdate(
-          { memberId: targetMemberId, status: { $in: ['APPROVED', 'PENDING'] } }, 
-          { status: 'CLOSED' }
-        );
+        fetchedUserEmi.activeLoanAmount = 0;
+        fetchedUserEmi.nextEmiDueDate = null;
+        fetchedUserEmi.emiStartDate = null;
+        fetchedUserEmi.emiEndDate = null;
+        fetchedUserEmi.defaulterStatus = false;
+      } else {
+        if (fetchedUserEmi.nextEmiDueDate) {
+          const nextD = new Date(fetchedUserEmi.nextEmiDueDate);
+          nextD.setMonth(nextD.getMonth() + 1);
+          fetchedUserEmi.nextEmiDueDate = nextD;
+        }
+        fetchedUserEmi.defaulterStatus = false;
       }
+      await fetchedUserEmi.save();
     }
 
     res.status(200).json({
       success: true,
       message: txStatus === 'PENDING_VERIFICATION' 
         ? 'Payment logged successfully. Awaiting Admin clearance (Cheque).' 
-        : (isFinalSettlement ? 'Loan fully settled and closed.' : 'EMI Processed successfully.'),
+        : (newOutstandingBalance <= 0 ? 'Loan(s) fully settled and closed.' : 'EMI Processed successfully.'),
       data: {
         transactionStatus: txStatus,
         totalEmiPaid: emiAmount,
-        interestDeducted: interestForMonth,
-        principalReduced: principalRepayment,
-        newOutstandingBalance: txStatus === 'COMPLETED' ? newOutstandingBalance : outstandingPrincipal,
+        interestDeducted: totalInterestDeducted,
+        principalReduced: totalPrincipalReduced,
+        newOutstandingBalance: txStatus === 'COMPLETED' ? newOutstandingBalance : totalOutstanding,
         penaltyApplied: penaltyAmount > 0,
         transactions: savedTransactions.map(t => t.transactionId)
       }
@@ -736,19 +789,27 @@ exports.generateDemandSheet = async (req, res) => {
   }
 };
 
-exports.getMyLoan = async (req, res) => {
+exports.getMyLoans = async (req, res) => {
   try {
-    const userId = req.user.id || req.user._id;
+    let targetUserId = req.user.id || req.user._id;
+
+    if ((req.user.role === 'admin' || req.user.role === 'executive') && (req.query.vendorNo || req.query.memberId)) {
+      if (req.query.memberId) {
+        targetUserId = req.query.memberId;
+      } else if (req.query.vendorNo) {
+        const foundUser = await User.findOne({ vendorNo: req.query.vendorNo });
+        if (foundUser) targetUserId = foundUser._id;
+      }
+    }
     
-    const loan = await Loan.findOne({ 
-      memberId: userId, 
-      status: { $in: ['PENDING', 'APPROVED', 'ACTIVE'] } 
+    const loans = await Loan.find({ 
+      memberId: targetUserId
     }).sort({ createdAt: -1 });
     
-    res.status(200).json({ loan });
+    res.status(200).json({ loans });
   } catch (error) {
-    console.error("Get My Loan Error:", error);
-    res.status(500).json({ error: "Failed to fetch loan data." });
+    console.error("Get My Loans Error:", error);
+    res.status(500).json({ error: "Failed to fetch loans data." });
   }
 };
 

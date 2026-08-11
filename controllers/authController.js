@@ -37,7 +37,7 @@ const register = async (req, res) => {
 // --- 2. LOGIN LOGIC ---
 const login = async (req, res) => {
   try {
-    const { vendorNo, password } = req.body;
+    const { vendorNo, password, loginRole } = req.body;
     
     // Find the user by Vendor Number
     const user = await User.findOne({ vendorNo });
@@ -55,13 +55,26 @@ const login = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ error: "Invalid password." });
 
+    // Validate Requested Login Role
+    let finalRole = user.role || 'member';
+    if (loginRole) {
+      if (loginRole === 'admin' && user.role !== 'admin') {
+         return res.status(403).json({ error: "Access denied. You do not have Admin privileges." });
+      }
+      if (loginRole === 'executive' && user.role !== 'admin' && user.role !== 'executive') {
+         return res.status(403).json({ error: "Access denied. You do not have Executive privileges." });
+      }
+      finalRole = loginRole;
+    }
+
     // Generate Login Token
     const secret = process.env.JWT_SECRET || 'sacco_super_secret_key';
-    const token = jwt.sign({ id: user._id, role: user.role || 'member' }, secret, { expiresIn: '1d' });
+    const token = jwt.sign({ id: user._id, role: finalRole }, secret, { expiresIn: '1d' });
     
     // Send complete user data back (excluding password)
     const userResponse = user.toObject();
     delete userResponse.password;
+    userResponse.role = finalRole; // Override role in response to match their login context
 
     res.status(200).json({ token, user: userResponse });
   } catch (error) {
@@ -107,7 +120,7 @@ const bulkUpload = async (req, res) => {
 // --- 4. DIRECTORY LOGIC ---
 const getAllMembers = async (req, res) => {
   try {
-    const users = await User.find({ status: 'approved' }).select('-password');
+    const users = await User.find().select('-password').sort({ vendorNo: 1 });
     res.status(200).json(users);
   } catch (error) {
     res.status(500).json({ error: "Error fetching directory." });

@@ -23,7 +23,7 @@ router.get("/my-statement", authenticate, loanController.getMyLoanStatement);
 router.get("/generate-demand-sheet", loanController.generateDemandSheet);
 
 // --- NEW PASSBOOK ROUTE ---
-router.get("/my-loan", authenticate, loanController.getMyLoan);
+router.get("/my-loans", authenticate, loanController.getMyLoans);
 
 // ---> NEW ROUTE FOR ADMIN MONEY OUT <---
 router.post("/approve-disbursement", authenticate, authorize(["admin"]), loanController.approveDisbursement);

@@ -24,6 +24,7 @@ const reconciliationRoutes = require("./routes/reconciliation"); // NEW: Added R
 const aiRoutes = require("./routes/aiRoutes"); // AI Financial Assistant
 const correctionRoutes = require("./routes/correctionRoutes"); // Correction Manager
 const dashboardRoutes = require("./routes/dashboardRoutes"); // Analytics Dashboard
+const excelRoutes = require("./routes/excelRoutes"); // Excel Bulk Upload
 
 // Initialize Database Connection
 connectDB();
@@ -61,6 +62,7 @@ app.use("/api/reconciliation", reconciliationRoutes);
 app.use("/api/ai", aiRoutes); // AI Financial Assistant
 app.use("/api/corrections", correctionRoutes); // Correction Manager (Reversal + Edit + Event Log)
 app.use("/api/dashboard", dashboardRoutes); // Analytics Dashboard & KPIs
+app.use("/api/excel", excelRoutes); // Excel Bulk Upload
 
 // ==========================================
 // 3. FALLBACK & ERROR HANDLING

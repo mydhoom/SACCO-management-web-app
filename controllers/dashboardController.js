@@ -8,6 +8,9 @@ const Loan = require('../models/Loan');
 // ============================================================
 exports.getDashboardKPIs = async (req, res) => {
   try {
+    const period = parseInt(req.query.period) || 6;
+    const monthsToSubtract = period - 1;
+
     // --- Run all aggregations in parallel for speed ---
     const [
       memberStats,
@@ -77,13 +80,13 @@ exports.getDashboardKPIs = async (req, res) => {
         .select('vendorNo memberName category amount entryType transactionDate description transactionId')
         .lean(),
 
-      // 1g. Monthly inflow vs outflow for the last 6 months (for bar chart)
+      // 1g. Monthly inflow vs outflow for the last N months (for bar chart)
       TransactionLog.aggregate([
         {
           $match: {
             status: 'COMPLETED',
             transactionDate: {
-              $gte: new Date(new Date().setMonth(new Date().getMonth() - 5, 1))
+              $gte: new Date(new Date().setMonth(new Date().getMonth() - monthsToSubtract, 1))
             }
           }
         },
@@ -128,11 +131,17 @@ exports.getDashboardKPIs = async (req, res) => {
     const chartLabels = [];
     const chartCredits = [];
     const chartDebits = [];
-    monthlyCollections.forEach(m => {
-      chartLabels.push(`${monthNames[m._id.month - 1]} ${m._id.year}`);
-      chartCredits.push(Math.round(m.totalCredits));
-      chartDebits.push(Math.round(m.totalDebits));
-    });
+    
+    const now = new Date();
+    for (let i = monthsToSubtract; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mLabel = `${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+      
+      const found = monthlyCollections.find(x => x._id.year === d.getFullYear() && x._id.month === (d.getMonth() + 1));
+      chartLabels.push(mLabel);
+      chartCredits.push(found ? Math.round(found.totalCredits) : 0);
+      chartDebits.push(found ? Math.round(found.totalDebits) : 0);
+    }
 
     // --- Build the response ---
     res.status(200).json({
