@@ -34,6 +34,8 @@ import { cilTrash, cilPencil, cilSearch, cilBank, cilMoney, cilUserPlus } from '
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
+import API_BASE_URL from '../../apiConfig'
+
 const MembersDirectory = () => {
   const [members, setMembers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -60,7 +62,7 @@ const MembersDirectory = () => {
     try {
       const token = localStorage.getItem('token'); // <-- 1. Get the token
       
-      const response = await fetch('http://localhost:5000/api/auth/users', {
+      const response = await fetch(`${API_BASE_URL}/api/auth/users`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`, // <-- 2. Send the token in the header
@@ -127,7 +129,7 @@ const MembersDirectory = () => {
     if (!window.confirm(`Are you sure you want to completely remove Vendor No: ${vendorNo}?`)) return
 
     try {
-      const response = await fetch(`http://localhost:5000/api/auth/users/${vendorNo}`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/users/${vendorNo}`, {
         method: 'DELETE',
       })
 
@@ -149,7 +151,7 @@ const MembersDirectory = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:5000/api/auth/reset-password/${userId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/reset-password/${userId}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -226,7 +228,7 @@ const MembersDirectory = () => {
     setIsSaving(true)
     try {
       const token = localStorage.getItem('token')
-      const response = await fetch('http://localhost:5000/api/auth/register', {
+      const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -256,7 +258,7 @@ const MembersDirectory = () => {
     setIsSaving(true)
     try {
       const token = localStorage.getItem('token')
-      const response = await fetch(`http://localhost:5000/api/auth/users/${editFormData._id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/users/${editFormData._id}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json', 
