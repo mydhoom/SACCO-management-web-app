@@ -39,20 +39,60 @@ const Member360Monitor = () => {
     setSelectedLoan(null)
   }, [selectedVendorNo])
 
+  // Helper: Draw official Mahadev Society Logo and PDF Header
+  const drawPDFHeader = (doc, titleText, isLandscape = false) => {
+    const pageWidth = isLandscape ? 842 : 595
+
+    doc.setFillColor(30, 60, 114) // #1e3c72
+    doc.rect(0, 0, pageWidth, 10, 'F')
+
+    try {
+      const img = new Image()
+      img.src = '/logo.png'
+      doc.addImage(img, 'PNG', 40, 20, 50, 50)
+    } catch (err) {
+      console.warn('PDF Header logo image fallback', err)
+    }
+
+    doc.setTextColor(30, 60, 114)
+    doc.setFontSize(14)
+    doc.setFont('helvetica', 'bold')
+    doc.text('MAHADEV CO-OPERATIVE THRIFT & CREDIT SOCIETY', 100, 36)
+
+    doc.setFontSize(8)
+    doc.setFont('helvetica', 'normal')
+    doc.setTextColor(100, 100, 100)
+    doc.text('HPSEBL Shimla — Registered Employees Co-operative Society', 100, 48)
+
+    doc.setFontSize(11)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(40, 40, 40)
+    doc.text(titleText, 100, 64)
+
+    doc.setDrawColor(200, 200, 200)
+    doc.setLineWidth(0.8)
+    doc.line(40, 76, pageWidth - 40, 76)
+  }
+
   // PDF Export for specific loan
   const exportLoanPDF = (targetLoan) => {
     if (!selectedMember || !targetLoan) return
     const doc = new jsPDF('portrait', 'pt', 'a4')
 
-    doc.setFontSize(16)
-    doc.text(`Official Loan Statement - ${targetLoan.loanId || 'Loan'}`, 40, 40)
-    doc.setFontSize(10)
-    doc.text(`Member Name: ${selectedMember.name}`, 40, 58)
-    doc.text(`Vendor No: ${selectedMember.vendorNo}`, 40, 72)
-    doc.text(`Sanctioned Loan Amount: ₹${(targetLoan.loanAmount || 0).toLocaleString('en-IN')}`, 40, 86)
-    doc.text(`Principal Pending: ₹${(targetLoan.principalPending !== undefined ? targetLoan.principalPending : targetLoan.loanAmount || 0).toLocaleString('en-IN')}`, 40, 100)
-    doc.text(`Tenure: ${targetLoan.tenure || 12} Months | Status: ${targetLoan.status}`, 40, 114)
-    doc.text(`Generated Date: ${new Date().toLocaleDateString('en-IN')}`, 40, 128)
+    drawPDFHeader(doc, `Official Loan Statement - ${targetLoan.loanId || 'Loan'}`)
+
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(50, 50, 50)
+
+    doc.text(`Member Name: ${selectedMember.name}`, 40, 94)
+    doc.text(`Vendor No: ${selectedMember.vendorNo}`, 40, 108)
+    doc.text(`Sanctioned Amount: Rs. ${(targetLoan.loanAmount || 0).toLocaleString('en-IN')}`, 40, 122)
+    
+    const pendingAmount = targetLoan.principalPending !== undefined ? targetLoan.principalPending : targetLoan.loanAmount || 0
+    doc.text(`Principal Pending: Rs. ${pendingAmount.toLocaleString('en-IN')}`, 300, 94)
+    doc.text(`Tenure: ${targetLoan.tenure || 12} Months`, 300, 108)
+    doc.text(`Status: ${targetLoan.status} | Date: ${new Date().toLocaleDateString('en-IN')}`, 300, 122)
 
     const tenure = targetLoan.tenure || 12
     const amount = targetLoan.loanAmount || 0
@@ -82,18 +122,18 @@ const Member360Monitor = () => {
       rows.push([
         i,
         dueDate.toLocaleDateString('en-IN'),
-        `₹${trueEmi.toLocaleString('en-IN')}`,
-        `₹${principalComp.toLocaleString('en-IN')}`,
-        `₹${interestComp.toLocaleString('en-IN')}`,
-        `₹${outstanding.toLocaleString('en-IN')}`
+        `Rs. ${trueEmi.toLocaleString('en-IN')}`,
+        `Rs. ${principalComp.toLocaleString('en-IN')}`,
+        `Rs. ${interestComp.toLocaleString('en-IN')}`,
+        `Rs. ${outstanding.toLocaleString('en-IN')}`
       ])
     }
 
     autoTable(doc, {
       head: [['Installment', 'Due Date', 'EMI Amount', 'Principal', 'Interest', 'Closing Balance']],
       body: rows,
-      startY: 145,
-      styles: { fontSize: 9, cellPadding: 4 },
+      startY: 138,
+      styles: { fontSize: 8.5, cellPadding: 4 },
       headStyles: { fillColor: [30, 60, 114] }
     })
 
@@ -188,43 +228,49 @@ const Member360Monitor = () => {
     if (!selectedMember) return
     const doc = new jsPDF('portrait', 'pt', 'a4')
 
-    doc.setFontSize(16)
-    doc.text(`Official Member 360 Audit Statement`, 40, 40)
-    doc.setFontSize(10)
-    doc.text(`Member Name: ${selectedMember.name}`, 40, 60)
-    doc.text(`Vendor No: ${selectedMember.vendorNo}`, 40, 75)
-    doc.text(`Designation: ${selectedMember.designation || 'N/A'}`, 40, 90)
-    doc.text(`Generated Date: ${new Date().toLocaleDateString('en-IN')}`, 40, 105)
+    drawPDFHeader(doc, `Official Member 360 Audit Statement`)
+
+    doc.setFontSize(9)
+    doc.setFont('helvetica', 'bold')
+    doc.setTextColor(50, 50, 50)
+
+    doc.text(`Member Name: ${selectedMember.name}`, 40, 94)
+    doc.text(`Vendor No: ${selectedMember.vendorNo}`, 40, 108)
+    doc.text(`Designation: ${selectedMember.designation || 'N/A'}`, 300, 94)
+    doc.text(`Generated Date: ${new Date().toLocaleDateString('en-IN')}`, 300, 108)
 
     const summaryRows = [
-      ['Share Capital', `₹${(selectedMember.currentShareMoneyTotal || 0).toLocaleString('en-IN')}`],
-      ['RD Balance', `₹${(selectedMember.rdBalance || 0).toLocaleString('en-IN')}`],
+      ['Share Capital', `Rs. ${(selectedMember.currentShareMoneyTotal || 0).toLocaleString('en-IN')}`],
+      ['RD Balance', `Rs. ${(selectedMember.rdBalance || 0).toLocaleString('en-IN')}`],
       ['Total Active Loans', loans.length.toString()],
-      ['Total Loan Outstanding', `₹${totalOutstanding.toLocaleString('en-IN')}`],
+      ['Total Loan Outstanding', `Rs. ${totalOutstanding.toLocaleString('en-IN')}`],
       ['Defaulter Status', selectedMember.defaulterStatus ? 'DEFAULTER (FLAGGED)' : 'Good Standing']
     ]
 
     autoTable(doc, {
       head: [['Financial Metric', 'Current Value']],
       body: summaryRows,
-      startY: 125,
-      styles: { fontSize: 10, cellPadding: 5 },
+      startY: 122,
+      styles: { fontSize: 9.5, cellPadding: 5 },
       headStyles: { fillColor: [30, 60, 114] }
     })
 
     if (rdTransactions.length > 0) {
-      doc.text("Recent RD & Savings Ledger", 40, doc.lastAutoTable.finalY + 25)
+      doc.setFontSize(11)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(30, 60, 114)
+      doc.text("Recent RD & Savings Ledger", 40, doc.lastAutoTable.finalY + 22)
       const rdRows = rdTransactions.slice(0, 15).map(tx => [
         new Date(tx.transactionDate || tx.createdAt).toLocaleDateString('en-IN'),
         tx.description || tx.category,
-        tx.entryType === 'CREDIT' ? `₹${Number(tx.amount).toLocaleString('en-IN')}` : '-',
-        tx.entryType === 'DEBIT' ? `₹${Number(tx.amount).toLocaleString('en-IN')}` : '-'
+        tx.entryType === 'CREDIT' ? `Rs. ${Number(tx.amount).toLocaleString('en-IN')}` : '-',
+        tx.entryType === 'DEBIT' ? `Rs. ${Number(tx.amount).toLocaleString('en-IN')}` : '-'
       ])
       autoTable(doc, {
         head: [['Date', 'Description', 'Credit (IN)', 'Debit (OUT)']],
         body: rdRows,
-        startY: doc.lastAutoTable.finalY + 35,
-        styles: { fontSize: 8, cellPadding: 4 }
+        startY: doc.lastAutoTable.finalY + 30,
+        styles: { fontSize: 8.5, cellPadding: 4 }
       })
     }
 

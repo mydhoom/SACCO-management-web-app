@@ -481,65 +481,96 @@ const MyPassbooks = () => {
       return totals
     }, { totalEMI: 0, totalPrincipal: 0, totalInterest: 0, totalPaid: 0, totalDue: 0 })
   }, [fullSchedule])
-
   const loanPaidPercent = loanTotals.totalEMI > 0 ? Math.min(100, Math.round((loanTotals.totalPaid / loanTotals.totalEMI) * 100)) : 0
   const loanPageCount = Math.max(1, Math.ceil(filteredSchedule.length / itemsPerPage))
   const rdPageCount = Math.max(1, Math.ceil(filteredRdTransactions.length / itemsPerPage))
 
-  // --- PDF EXPORT LOGIC ---
+  // PDF EXPORT LOGIC WITH LOGO & HEADER
   const handleExportPDF = () => {
+    const drawPDFHeader = (doc, titleText, isLandscape = false) => {
+      const pageWidth = isLandscape ? 842 : 595
+      doc.setFillColor(30, 60, 114)
+      doc.rect(0, 0, pageWidth, 10, 'F')
+      try {
+        const img = new Image()
+        img.src = '/logo.png'
+        doc.addImage(img, 'PNG', 40, 20, 48, 48)
+      } catch (e) {}
+
+      doc.setTextColor(30, 60, 114)
+      doc.setFontSize(14)
+      doc.setFont('helvetica', 'bold')
+      doc.text('MAHADEV CO-OPERATIVE THRIFT & CREDIT SOCIETY', 98, 34)
+
+      doc.setFontSize(8)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(100, 100, 100)
+      doc.text('HPSEBL Shimla — Registered Employees Co-operative Society', 98, 46)
+
+      doc.setFontSize(11)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(40, 40, 40)
+      doc.text(titleText, 98, 62)
+
+      doc.setDrawColor(200, 200, 200)
+      doc.setLineWidth(0.8)
+      doc.line(40, 74, pageWidth - 40, 74)
+    }
+
     if (activeSubView === 'rd') {
       const doc = new jsPDF('portrait', 'pt', 'a4')
-      doc.setFontSize(16)
-      doc.text(`RD Passbook - ${userData?.vendorNo || 'Member'}`, 40, 40)
-      doc.setFontSize(10)
-      doc.text(`Member: ${userData?.name || 'N/A'}`, 40, 58)
-      doc.text(`Vendor No: ${userData?.vendorNo || 'N/A'}`, 40, 72)
-      doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')}`, 40, 86)
+      drawPDFHeader(doc, `RD Passbook Statement - ${userData?.vendorNo || 'Member'}`)
+
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'bold')
+      doc.text(`Member Name: ${userData?.name || 'N/A'}`, 40, 92)
+      doc.text(`Vendor No: ${userData?.vendorNo || 'N/A'}`, 40, 106)
+      doc.text(`Generated Date: ${new Date().toLocaleDateString('en-IN')}`, 300, 92)
 
       const rows = filteredRdTransactions.map((tx) => [
         new Date(tx.transactionDate || tx.createdAt).toLocaleDateString('en-IN'),
         tx.description || tx.category || '-',
         tx.ledgerFolio || tx.referenceNumber || '-',
-        tx.entryType === 'CREDIT' ? `₹${Number(tx.amount).toLocaleString('en-IN')}` : '-',
-        tx.entryType === 'DEBIT' ? `₹${Number(tx.amount).toLocaleString('en-IN')}` : '-',
-        `₹${Number(tx.runningBalance).toLocaleString('en-IN')}`
+        tx.entryType === 'CREDIT' ? `Rs. ${Number(tx.amount).toLocaleString('en-IN')}` : '-',
+        tx.entryType === 'DEBIT' ? `Rs. ${Number(tx.amount).toLocaleString('en-IN')}` : '-',
+        `Rs. ${Number(tx.runningBalance).toLocaleString('en-IN')}`
       ])
 
       autoTable(doc, {
-        head: [[ 'Date', 'Description', 'Ref No', 'Credit', 'Debit', 'Balance' ]],
+        head: [[ 'Date', 'Description', 'Ref No', 'Credit (IN)', 'Debit (OUT)', 'Balance' ]],
         body: rows,
-        startY: 110,
-        styles: { fontSize: 9, cellPadding: 4 },
-        headStyles: { fillColor: [33, 37, 41] }
+        startY: 118,
+        styles: { fontSize: 8.5, cellPadding: 4 },
+        headStyles: { fillColor: [30, 60, 114] }
       })
       doc.save(`RD_Passbook_${userData?.vendorNo || 'member'}.pdf`)
     } else {
       const doc = new jsPDF('landscape', 'pt', 'a4')
-      doc.setFontSize(16)
-      doc.text(`Loan Statement - ${userData?.vendorNo || 'Member'}`, 40, 40)
-      doc.setFontSize(10)
-      doc.text(`Member: ${userData?.name || 'N/A'}`, 40, 58)
-      doc.text(`Vendor No: ${userData?.vendorNo || 'N/A'}`, 40, 72)
-      doc.text(`Loan ID: ${activeLoan?.loanId || 'N/A'}`, 40, 86)
-      doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')}`, 40, 100)
+      drawPDFHeader(doc, `Loan Statement - ${activeLoan?.loanId || 'Loan'}`, true)
+
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'bold')
+      doc.text(`Member Name: ${userData?.name || 'N/A'}`, 40, 92)
+      doc.text(`Vendor No: ${userData?.vendorNo || 'N/A'}`, 40, 106)
+      doc.text(`Loan ID: ${activeLoan?.loanId || 'N/A'}`, 350, 92)
+      doc.text(`Generated Date: ${new Date().toLocaleDateString('en-IN')}`, 350, 106)
 
       const rows = filteredSchedule.map((item) => [
         item.installmentNo,
         item.dueDate.toLocaleDateString('en-IN'),
-        `₹${Number(item.emi).toLocaleString('en-IN')}`,
-        `₹${Number(item.principal).toLocaleString('en-IN')}`,
-        `₹${Number(item.interest).toLocaleString('en-IN')}`,
-        `₹${Number(item.closingBalance).toLocaleString('en-IN')}`,
+        `Rs. ${Number(item.emi).toLocaleString('en-IN')}`,
+        `Rs. ${Number(item.principal).toLocaleString('en-IN')}`,
+        `Rs. ${Number(item.interest).toLocaleString('en-IN')}`,
+        `Rs. ${Number(item.closingBalance).toLocaleString('en-IN')}`,
         item.status
       ])
 
       autoTable(doc, {
-        head: [[ 'No.', 'Due Date', 'EMI', 'Principal', 'Interest', 'Balance', 'Status' ]],
+        head: [[ 'No.', 'Due Date', 'EMI Amount', 'Principal', 'Interest', 'Closing Balance', 'Status' ]],
         body: rows,
-        startY: 120,
-        styles: { fontSize: 9, cellPadding: 4 },
-        headStyles: { fillColor: [220, 53, 69] }
+        startY: 118,
+        styles: { fontSize: 8.5, cellPadding: 4 },
+        headStyles: { fillColor: [30, 60, 114] }
       })
       doc.save(`Loan_Statement_${userData?.vendorNo || 'member'}.pdf`)
     }
