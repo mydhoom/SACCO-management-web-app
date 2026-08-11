@@ -1,0 +1,111 @@
+// ==========================================
+// SOCIETY PORTAL - SOBER FINANCIAL THEME
+// ==========================================
+
+// 1 & 2. Core Colors injected DIRECTLY into the CoreUI compiler
+@use "@coreui/coreui/scss/coreui" as * with (
+  $primary: #2563eb,
+  $secondary: #64748b,
+  $success: #16a34a,
+  $info: #0284c7,
+  $warning: #d97706,
+  $danger: #dc2626,
+  $body-bg: #f8fafc,
+  $body-color: #334155,
+  $enable-deprecation-messages: false
+);
+
+@use "@coreui/chartjs/scss/coreui-chartjs";
+@use "vendors/simplebar";
+
+// 3 & 4. Sidebar and Card Customization (Using CoreUI's native CSS variables)
+// 3 & 4. Sidebar, Card, and Core Color Customization (Bulletproof CSS Override)
+/* 3 & 4. Bulletproof SAP Theme Override */
+[data-coreui-theme="light"], :root {
+  /* SAP Corporate Colors */
+  --cui-primary: #0a6ed1;       
+  --cui-secondary: #6c757d;     
+  --cui-success: #107e3e;       
+  --cui-warning: #e9730c;       
+  --cui-danger: #bb0000;        
+  --cui-info: #0070f2;          
+  
+  /* Sidebar Customization (Forced Dark to make white logo visible) */
+  --cui-sidebar-bg: #1c2536 !important;    
+  --cui-sidebar-nav-link-color: #f1f5f9;
+  --cui-sidebar-brand-color: #ffffff !important; 
+  
+  /* Card Styling */
+  --cui-card-border-color: #d3d7d9; 
+  --cui-card-cap-bg: #ffffff;
+  
+  /* The Dimmed SAP Background */
+  --cui-body-bg: #ebf0f4 !important;       
+  --cui-body-color: #32363a;    
+  --cui-heading-color: #1d2d3e;
+}
+
+// ==========================================
+// ORIGINAL TEMPLATE STYLES
+// ==========================================
+body {
+  background-color: var(--cui-tertiary-bg);
+}
+
+.wrapper {
+  width: 100%;
+  padding-inline: var(--cui-sidebar-occupy-start, 0) var(--cui-sidebar-occupy-end, 0);
+  will-change: auto;
+  @include transition(padding .15s);
+}
+
+.header > .container-fluid,
+.sidebar-header {
+  min-height: calc(4rem + 1px); // stylelint-disable-line function-disallowed-list
+}
+
+.sidebar-brand-full {
+  margin-left: 3px;
+}
+
+.sidebar-header {
+  .nav-underline-border {
+    --cui-nav-underline-border-link-padding-x: 1rem;
+    --cui-nav-underline-border-gap: 0;
+  }
+
+  .nav-link {
+    display: flex;
+    align-items: center;
+    min-height: calc(4rem + 1px); // stylelint-disable-line function-disallowed-list
+  }
+}
+
+.sidebar-toggler {
+  margin-inline-start: auto;
+}
+
+.sidebar-narrow,
+.sidebar-narrow-unfoldable:not(:hover) {
+  .sidebar-toggler {
+    margin-inline-end: auto;
+  }
+}
+
+.header > .container-fluid + .container-fluid {
+  min-height: 3rem;
+}
+
+.footer {
+  min-height: calc(3rem + 1px); // stylelint-disable-line function-disallowed-list
+}
+
+@include color-mode(dark) {
+  body {
+    background-color: var(--cui-dark-bg-subtle);
+  }
+
+  .footer {
+    --cui-footer-bg: var(--cui-body-bg);
+  }
+}
