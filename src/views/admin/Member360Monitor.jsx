@@ -308,16 +308,72 @@ const Member360Monitor = () => {
     return loans.reduce((acc, l) => acc + (Number(l.principalPending || l.loanAmount || 0)), 0)
   }, [loans])
 
-  // Single Member WhatsApp Notice Trigger
-  const sendWhatsAppNotice = (member, targetLoan = null) => {
+  const [statementDays, setStatementDays] = useState(-1) // default to -1 (Unsent New Transactions since last checkpoint)
+
+  // Dispatch history checkpoint tracker stored in localStorage
+  const [dispatchHistory, setDispatchHistory] = useState(() => {
+    try {
+      const saved = localStorage.getItem('wa_dispatch_history')
+      return saved ? JSON.parse(saved) : {}
+    } catch {
+      return {}
+    }
+  })
+
+  const recordDispatchCheckpoint = (vendorNo) => {
+    const updated = {
+      ...dispatchHistory,
+      [vendorNo]: new Date().toISOString()
+    }
+    setDispatchHistory(updated)
+    localStorage.setItem('wa_dispatch_history', JSON.stringify(updated))
+  }
+
+  // Single Member WhatsApp Notice Trigger with Multi-Day & Checkpoint Consolidation
+  const sendWhatsAppNotice = (member, targetLoan = null, days = statementDays) => {
     if (!member) return
     const phone = member.mobileNumber || member.phone || member.contactNo || ''
     const cleanPhone = phone.replace(/[^0-9]/g, '')
 
+    const lastCheckpointIso = dispatchHistory[member.vendorNo]
+    let cutoffDate = null
+    let statementModeTitle = ""
+
+    if (days === -1 && lastCheckpointIso) {
+      // MODE A: SINCE LAST DISPATCH CHECKPOINT
+      cutoffDate = new Date(lastCheckpointIso)
+      const lastDateStr = cutoffDate.toLocaleDateString('en-IN') + ' ' + cutoffDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
+      statementModeTitle = `New Account Activity (Since Last Notice on ${lastDateStr})`
+    } else {
+      // MODE B: FIXED TIMEFRAME (e.g. Last 4 Days / 7 Days)
+      const daysToUse = days === -1 ? 4 : days
+      cutoffDate = new Date()
+      cutoffDate.setDate(cutoffDate.getDate() - daysToUse)
+      statementModeTitle = `Account Activity Statement (Last ${daysToUse} Days)`
+    }
+
+    const recentTxList = transactions.filter(tx => {
+      const txDate = new Date(tx.transactionDate || tx.createdAt)
+      return txDate >= cutoffDate
+    })
+
     let msg = `*MAHADEV CO-OPERATIVE THRIFT & CREDIT SOCIETY*\n`
-    msg += `*Official Member Account Statement*\n\n`
+    msg += `*${statementModeTitle}*\n\n`
     msg += `Hello *${member.name}* (Vendor No: ${member.vendorNo}),\n\n`
-    msg += `📊 *Account Summary:*\n`
+
+    if (recentTxList.length > 0) {
+      msg += `📝 *New Transactions (${recentTxList.length} Entries):*\n`
+      recentTxList.forEach(tx => {
+        const d = new Date(tx.transactionDate || tx.createdAt).toLocaleDateString('en-IN')
+        const type = tx.entryType === 'CREDIT' ? 'CR' : 'DR'
+        msg += `• ${d}: ₹${Number(tx.amount).toLocaleString('en-IN')} (${tx.category || tx.type || 'Savings'}) [${type}]\n`
+      })
+      msg += `\n`
+    } else {
+      msg += `ℹ️ *No new transactions recorded since your last notice on ${lastCheckpointIso ? new Date(lastCheckpointIso).toLocaleDateString('en-IN') : 'file'}.*\n\n`
+    }
+
+    msg += `📊 *Updated Account Balances:*\n`
     msg += `• Share Capital: ₹${(member.currentShareMoneyTotal || 0).toLocaleString('en-IN')}\n`
     msg += `• RD Balance: ₹${(member.rdBalance || 0).toLocaleString('en-IN')}\n`
     msg += `• Total Loan Outstanding: ₹${totalOutstanding.toLocaleString('en-IN')}\n`
@@ -336,6 +392,9 @@ const Member360Monitor = () => {
     }
 
     msg += `\n_Generated on ${new Date().toLocaleDateString('en-IN')} via Mahadev SACCO Portal_`
+
+    // Update dispatch checkpoint timestamp for this member
+    recordDispatchCheckpoint(member.vendorNo)
 
     const url = cleanPhone
       ? `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(msg)}`
@@ -362,6 +421,9 @@ const Member360Monitor = () => {
     let personalizedMsg = broadcastMessage
       .replace(/{name}/g, member.name || 'Member')
       .replace(/{vendorNo}/g, member.vendorNo || '')
+
+    // Update dispatch checkpoint timestamp for this member
+    recordDispatchCheckpoint(member.vendorNo)
 
     const url = cleanPhone
       ? `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(personalizedMsg)}`
@@ -474,7 +536,25 @@ const Member360Monitor = () => {
           <h1 className="h4 mb-0 text-dark fw-bold">Member 360 Monitor</h1>
           <div className="small text-muted">Admin live statement inspector & member account progress tracker.</div>
         </div>
-        <div className="d-flex gap-2">
+        <div className="d-flex align-items-center gap-2">
+          <label htmlFor="statement-days-select" className="visually-hidden">Activity Period Days</label>
+          <CFormSelect 
+            id="statement-days-select"
+            size="sm" 
+            value={statementDays} 
+            onChange={(e) => setStatementDays(Number(e.target.value))} 
+            style={{ width: '200px' }}
+            className="fw-bold border-success shadow-sm"
+            aria-label="Select transaction history days for WhatsApp statement"
+          >
+            <option value={-1}>✨ Unsent New Trxs (Auto-Checkpoint)</option>
+            <option value={1}>⏱️ Last 1 Day</option>
+            <option value={4}>⏱️ Last 4 Days</option>
+            <option value={7}>⏱️ Last 7 Days</option>
+            <option value={30}>⏱️ Last 30 Days</option>
+            <option value={365}>⏱️ Full Year</option>
+          </CFormSelect>
+
           <CButton 
             color="success" 
             size="sm" 
@@ -625,6 +705,14 @@ const Member360Monitor = () => {
                 </CCol>
 
                 <CCol md={6} className="text-md-end d-flex justify-content-md-end align-items-center gap-2 flex-wrap">
+                  <div className="text-end me-2">
+                    <div className="small text-white-50">Last WhatsApp Checkpoint:</div>
+                    <CBadge color="info" className="px-2 py-1 bg-opacity-25 text-white border border-light">
+                      {dispatchHistory[selectedMember.vendorNo] 
+                        ? `📅 ${new Date(dispatchHistory[selectedMember.vendorNo]).toLocaleDateString('en-IN')} ${new Date(dispatchHistory[selectedMember.vendorNo]).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`
+                        : 'Never Sent (Fresh)'}
+                    </CBadge>
+                  </div>
                   <CBadge color={selectedMember.defaulterStatus ? 'danger' : 'success'} className="px-3 py-2 fs-6 shadow-sm">
                     {selectedMember.defaulterStatus ? '⚠ Defaulter Alert' : '✓ Good Standing'}
                   </CBadge>
@@ -1042,10 +1130,35 @@ const Member360Monitor = () => {
           </div>
 
           <div className="mb-3">
-            <label className="fw-bold text-dark mb-1">2. Custom Notice Message Template:</label>
+            <label className="fw-bold text-dark mb-1">2. Quick Message Preset (General, Periodic & Account Activity):</label>
+            <CFormSelect 
+              className="border-success mb-2 fw-semibold"
+              onChange={(e) => {
+                const val = e.target.value
+                if (val === 'PERIODIC_DUE') {
+                  setBroadcastMessage(`*MAHADEV CO-OPERATIVE THRIFT & CREDIT SOCIETY*\n*MONTHLY DEPOSIT & EMI REMINDER*\n\nDear {name} (Vendor: {vendorNo}),\n\nThis is a friendly reminder regarding your monthly RD contribution & Loan EMI deposit for this month.\n\nKindly ensure your monthly contribution is deposited by the due date to avoid any late penalty.\n\nThank you,\nMahadev Co-operative Society, Shimla`)
+                } else if (val === 'AGM_NOTICE') {
+                  setBroadcastMessage(`*MAHADEV CO-OPERATIVE THRIFT & CREDIT SOCIETY*\n*ANNUAL GENERAL MEETING (AGM) NOTICE*\n\nDear {name} (Vendor: {vendorNo}),\n\nYou are cordially invited to attend the Annual General Meeting (AGM) of Mahadev Co-operative Thrift & Credit Society.\n\n📅 Date: End of Month\n📍 Venue: HPSEBL Headquarters, Shimla\n\nYour presence and active participation are highly valued.\n\nRegards,\nBoard of Directors`)
+                } else if (val === 'DIVIDEND_ALERT') {
+                  setBroadcastMessage(`*MAHADEV CO-OPERATIVE THRIFT & CREDIT SOCIETY*\n*ANNUAL DIVIDEND ANNOUNCEMENT*\n\nDear {name} (Vendor: {vendorNo}),\n\nWe are pleased to inform you that your annual share capital dividend has been calculated and credited to your society savings account.\n\nYou can view your updated dividend ledger on your member portal.\n\nThank you for your continued trust!\nManaging Committee`)
+                } else if (val === 'OVERDUE_ALERT') {
+                  setBroadcastMessage(`*MAHADEV CO-OPERATIVE THRIFT & CREDIT SOCIETY*\n*URGENT: OVERDUE LOAN PAYMENT NOTICE*\n\nDear {name} (Vendor: {vendorNo}),\n\nOur records show that your monthly loan EMI installment is currently OVERDUE.\n\nKindly clear your pending installment immediately to maintain a healthy credit score and avoid penal interest.\n\nRegards,\nLoan Recovery Cell`)
+                } else if (val === 'CUSTOM') {
+                  setBroadcastMessage(`*MAHADEV CO-OPERATIVE THRIFT & CREDIT SOCIETY*\n*OFFICIAL NOTICE*\n\nDear {name} (Vendor: {vendorNo}),\n\nThis is an official communication from Mahadev Co-operative Thrift & Credit Society, HPSEBL Shimla.\n\nThank you,\nManaging Committee`)
+                }
+              }}
+            >
+              <option value="CUSTOM">✍️ Custom Message / Notice</option>
+              <option value="PERIODIC_DUE">📅 Periodic Monthly Deposit & EMI Reminder</option>
+              <option value="AGM_NOTICE">📢 General: Annual General Meeting (AGM) Announcement</option>
+              <option value="DIVIDEND_ALERT">💰 General: Annual Dividend Distribution Alert</option>
+              <option value="OVERDUE_ALERT">🚨 Account Activity: Overdue Loan Repayment Urgency Alert</option>
+            </CFormSelect>
+
+            <label className="fw-bold text-dark mb-1">3. Broadcast Message Content:</label>
             <div className="small text-muted mb-2">Use placeholders <code>{'{name}'}</code> and <code>{'{vendorNo}'}</code> for auto-personalization.</div>
             <CFormTextarea 
-              rows={5}
+              rows={6}
               value={broadcastMessage}
               onChange={(e) => setBroadcastMessage(e.target.value)}
               className="font-monospace bg-light border-secondary"
