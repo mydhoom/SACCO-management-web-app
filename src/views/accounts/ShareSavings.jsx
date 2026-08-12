@@ -237,12 +237,12 @@ const ShareSavings = () => {
               </CTableHead>
               <CTableBody>
                 {filteredDeposits.map((trx, idx) => {
-                  const safeId = trx.id ? String(trx.id).slice(-6).toUpperCase() : `TRX-${idx + 1}`
+                  const safeId = trx.transactionId || (trx.id ? String(trx.id).slice(-8).toUpperCase() : `TRX-${idx + 1}`)
 
                   return (
                     <CTableRow key={trx.id || idx}>
-                      <CTableDataCell className="ps-4 text-medium-emphasis small font-monospace">
-                        ...{safeId}
+                      <CTableDataCell className="ps-4 text-dark fw-bold small font-monospace">
+                        {safeId}
                       </CTableDataCell>
                       <CTableDataCell className="fw-medium">
                         {trx.date || 'N/A'}
