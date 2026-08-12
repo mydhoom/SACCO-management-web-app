@@ -153,25 +153,34 @@ const Member360Monitor = () => {
     const fetchDirectory = async () => {
       try {
         setLoadingMembers(true)
+        setError(null)
+        const currentToken = localStorage.getItem('adminToken') || localStorage.getItem('token')
         const res = await fetch(`${apiBase}/api/auth/users`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: currentToken ? `Bearer ${currentToken}` : '' }
         })
+        if (res.status === 401 || res.status === 403) {
+          setError("Session expired or 403 Forbidden. Please log out and log in again as Admin.")
+          return
+        }
         if (res.ok) {
           const data = await res.json()
           const memberList = Array.isArray(data) ? data : data.members || []
           setMembers(memberList)
-          if (memberList.length > 0) {
+          if (memberList.length > 0 && !selectedVendorNo) {
             setSelectedVendorNo(memberList[0].vendorNo)
           }
+        } else {
+          setError("Failed to load member directory from server.")
         }
       } catch (err) {
         console.error("Failed to fetch directory:", err)
+        setError("Network error connecting to backend server.")
       } finally {
         setLoadingMembers(false)
       }
     }
     fetchDirectory()
-  }, [apiBase, token])
+  }, [apiBase])
 
   // 2. Fetch specific member details when selectedVendorNo changes
   useEffect(() => {
@@ -179,15 +188,15 @@ const Member360Monitor = () => {
 
     const fetchMemberData = async () => {
       setLoadingDetails(true)
-      setError(null)
       try {
         const found = members.find(m => String(m.vendorNo) === String(selectedVendorNo))
         setSelectedMember(found || null)
 
+        const currentToken = localStorage.getItem('adminToken') || localStorage.getItem('token')
+        const headers = { Authorization: currentToken ? `Bearer ${currentToken}` : '' }
+
         // Fetch member's specific loans
-        const loanRes = await fetch(`${apiBase}/api/loans/my-loans?vendorNo=${selectedVendorNo}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
+        const loanRes = await fetch(`${apiBase}/api/loans/my-loans?vendorNo=${selectedVendorNo}`, { headers })
         if (loanRes.ok) {
           const loanData = await loanRes.json()
           setLoans(loanData.loans || [])
@@ -196,9 +205,7 @@ const Member360Monitor = () => {
         }
 
         // Fetch member's specific transactions
-        const txRes = await fetch(`${apiBase}/api/transactions/my-transactions?vendorNo=${selectedVendorNo}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
+        const txRes = await fetch(`${apiBase}/api/transactions/my-transactions?vendorNo=${selectedVendorNo}`, { headers })
         if (txRes.ok) {
           const txData = await txRes.json()
           setTransactions(txData.transactions || txData || [])
@@ -214,7 +221,7 @@ const Member360Monitor = () => {
     }
 
     fetchMemberData()
-  }, [selectedVendorNo, members, apiBase, token])
+  }, [selectedVendorNo, members, apiBase])
 
   // Sorting state for Loans & Passbook tables
   const [loanSortConfig, setLoanSortConfig] = useState({ key: null, direction: 'asc' })
