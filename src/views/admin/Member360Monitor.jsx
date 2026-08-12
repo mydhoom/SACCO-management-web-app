@@ -361,7 +361,7 @@ const Member360Monitor = () => {
     }
 
     // Table 3: RD & Savings Ledger
-    if (rdTransactions.length > 0) {
+    if (sortedRdTransactions.length > 0) {
       if (currentY > 700) {
         doc.addPage()
         currentY = 40
@@ -372,7 +372,7 @@ const Member360Monitor = () => {
       doc.setTextColor(30, 60, 114)
       doc.text("Recent RD & Savings Ledger", 40, currentY)
 
-      const rdRows = rdTransactions.slice(0, 15).map(tx => [
+      const rdRows = sortedRdTransactions.slice(0, 15).map(tx => [
         new Date(tx.transactionDate || tx.createdAt).toLocaleDateString('en-IN'),
         tx.description || tx.category,
         tx.entryType === 'CREDIT' ? `Rs. ${Number(tx.amount).toLocaleString('en-IN')}` : '-',
