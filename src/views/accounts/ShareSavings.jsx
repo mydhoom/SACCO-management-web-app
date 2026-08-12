@@ -120,6 +120,25 @@ const ShareSavings = () => {
     })
   }, [transactions, searchTerm, sortConfig])
 
+  const sendWhatsAppReceipt = (trx) => {
+    const safeId = trx.transactionId || (trx.id ? String(trx.id).slice(-8).toUpperCase() : 'TRX')
+    
+    let msg = `*MAHADEV CO-OPERATIVE THRIFT & CREDIT SOCIETY*\n`
+    msg += `*Official Transaction Receipt*\n\n`
+    msg += `Hello *${trx.name || 'Member'}* (Vendor: ${trx.vendorNo || 'N/A'}),\n\n`
+    msg += `✅ *Transaction Details:*\n`
+    msg += `• Trx ID: *${safeId}*\n`
+    msg += `• Date: ${trx.date || new Date().toLocaleDateString('en-IN')}\n`
+    msg += `• Deposit Type: ${trx.type || 'Savings'}\n`
+    msg += `• Amount Credited: *₹${(Number(trx.amount) || 0).toLocaleString('en-IN')}*\n`
+    msg += `• Status: ${trx.status || 'Credited'}\n\n`
+    msg += `Thank you for your payment to Mahadev Co-operative Society.\n`
+    msg += `_Official E-Receipt generated on ${new Date().toLocaleDateString('en-IN')}_`
+
+    const url = `https://wa.me/?text=${encodeURIComponent(msg)}`
+    window.open(url, '_blank')
+  }
+
   // Visual helper functions
   const getStatusBadge = (status) => {
     if (status === 'Credited') return 'success'
@@ -188,10 +207,10 @@ const ShareSavings = () => {
   }
 
   return (
-    <>
+    <main className="share-savings-container">
       <div className="mb-4 d-flex justify-content-between align-items-end">
         <div>
-          <h4 className="mb-0 text-dark fw-bold">Share & Savings Ledger</h4>
+          <h1 className="h4 mb-0 text-dark fw-bold">Share & Savings Ledger</h1>
           <div className="small text-medium-emphasis">Division-wide capital, mandatory, and voluntary savings overview.</div>
         </div>
         <CButton color="success" className="text-white shadow-sm fw-bold" onClick={handleGenerateReport}>
@@ -247,7 +266,7 @@ const ShareSavings = () => {
 
       <CCard className="shadow-sm border-0">
         <CCardHeader className="bg-white pb-3 pt-3 border-bottom d-flex justify-content-between align-items-center">
-          <h5 className="mb-0 text-dark fw-bold">Recent Transactions</h5>
+          <h2 className="h5 mb-0 text-dark fw-bold">Recent Transactions</h2>
           
           <CInputGroup style={{ width: '300px' }}>
             <CInputGroupText className="bg-light border-end-0">
@@ -257,6 +276,7 @@ const ShareSavings = () => {
               className="border-start-0 bg-light"
               placeholder="Search by ID, Name, Vendor No..." 
               value={searchTerm}
+              aria-label="Search transactions by ID, Name, or Vendor No"
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </CInputGroup>
@@ -267,23 +287,26 @@ const ShareSavings = () => {
             <CTable hover striped align="middle" className="mb-0">
               <CTableHead color="light">
                 <CTableRow>
-                  <CTableHeaderCell onClick={() => handleSort('transactionId')} style={{ cursor: 'pointer', userSelect: 'none' }} className="ps-4 py-3">
+                  <CTableHeaderCell scope="col" onClick={() => handleSort('transactionId')} style={{ cursor: 'pointer', userSelect: 'none' }} className="ps-4 py-3">
                     Trx ID {getSortIcon('transactionId')}
                   </CTableHeaderCell>
-                  <CTableHeaderCell onClick={() => handleSort('date')} style={{ cursor: 'pointer', userSelect: 'none' }} className="py-3">
+                  <CTableHeaderCell scope="col" onClick={() => handleSort('date')} style={{ cursor: 'pointer', userSelect: 'none' }} className="py-3">
                     Date {getSortIcon('date')}
                   </CTableHeaderCell>
-                  <CTableHeaderCell onClick={() => handleSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }} className="py-3">
+                  <CTableHeaderCell scope="col" onClick={() => handleSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }} className="py-3">
                     Member Info {getSortIcon('name')}
                   </CTableHeaderCell>
-                  <CTableHeaderCell onClick={() => handleSort('type')} style={{ cursor: 'pointer', userSelect: 'none' }} className="py-3">
+                  <CTableHeaderCell scope="col" onClick={() => handleSort('type')} style={{ cursor: 'pointer', userSelect: 'none' }} className="py-3">
                     Deposit Type {getSortIcon('type')}
                   </CTableHeaderCell>
-                  <CTableHeaderCell onClick={() => handleSort('amount')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end py-3">
+                  <CTableHeaderCell scope="col" onClick={() => handleSort('amount')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end py-3">
                     Amount (₹) {getSortIcon('amount')}
                   </CTableHeaderCell>
-                  <CTableHeaderCell onClick={() => handleSort('status')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-center pe-4 py-3">
+                  <CTableHeaderCell scope="col" onClick={() => handleSort('status')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-center py-3">
                     Status {getSortIcon('status')}
+                  </CTableHeaderCell>
+                  <CTableHeaderCell scope="col" className="text-center pe-4 py-3">
+                    Receipt Alert
                   </CTableHeaderCell>
                 </CTableRow>
               </CTableHead>
@@ -311,10 +334,21 @@ const ShareSavings = () => {
                       <CTableDataCell className="text-end fw-bold text-success">
                         + {(Number(trx.amount) || 0).toLocaleString('en-IN')}
                       </CTableDataCell>
-                      <CTableDataCell className="text-center pe-4">
+                      <CTableDataCell className="text-center">
                         <CBadge color={getStatusBadge(trx.status)} shape="rounded-pill" className="px-3 py-2">
                           {trx.status || 'Credited'}
                         </CBadge>
+                      </CTableDataCell>
+                      <CTableDataCell className="text-center pe-4">
+                        <CButton 
+                          color="success" 
+                          size="sm" 
+                          className="text-white fw-bold py-1 px-2"
+                          aria-label={`Send WhatsApp Receipt for transaction ${safeId}`}
+                          onClick={() => sendWhatsAppReceipt(trx)}
+                        >
+                          💬 Receipt
+                        </CButton>
                       </CTableDataCell>
                     </CTableRow>
                   )
@@ -332,7 +366,7 @@ const ShareSavings = () => {
           </div>
         </CCardBody>
       </CCard>
-    </>
+    </main>
   )
 }
 
