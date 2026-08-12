@@ -56,7 +56,7 @@ const AppHeaderDropdown = () => {
         <span className="me-2 fw-semibold text-decoration-none" style={{ color: 'inherit' }}>
           {profileData.name}
         </span>
-        <CAvatar src={profileData.avatar} size="md" />
+        <CAvatar src={profileData.avatar} size="md" alt="User Profile" />
       </CDropdownToggle>
 
       <CDropdownMenu className="pt-0" placement="bottom-end">

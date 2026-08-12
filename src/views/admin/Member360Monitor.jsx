@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react'
 import {
   CCard, CCardBody, CCardHeader, CRow, CCol, CButton, CTable, CTableHead,
   CTableRow, CTableHeaderCell, CTableBody, CTableDataCell, CBadge, CFormSelect,
-  CFormInput, CAlert, CSpinner, CNav, CNavItem, CNavLink, CTabContent, CTabPane, CProgress
+  CFormInput, CAlert, CSpinner, CNav, CNavItem, CNavLink, CTabContent, CTabPane, CProgress,
+  CModal, CModalHeader, CModalTitle, CModalBody, CModalFooter, CFormTextarea
 } from '@coreui/react'
 import CIcon from '@coreui/icons-react'
 import { 
@@ -27,6 +28,13 @@ const Member360Monitor = () => {
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' })
 
   const [activeTab, setActiveTab] = useState('overview')
+
+  // WhatsApp Broadcast Modal states
+  const [showBroadcastModal, setShowBroadcastModal] = useState(false)
+  const [broadcastTarget, setBroadcastTarget] = useState('ALL')
+  const [broadcastMessage, setBroadcastMessage] = useState(
+    'MAHADEV CO-OPERATIVE THRIFT & CREDIT SOCIETY\n\nDear {name} (Vendor: {vendorNo}),\nThis is an official notice regarding your account status and monthly RD/EMI contributions.\n\nPlease clear any pending dues at the society counter or via official UPI.\n\nThank you!'
+  )
 
   // Financial Data state for selected member
   const [loans, setLoans] = useState([])
@@ -293,6 +301,68 @@ const Member360Monitor = () => {
     return loans.reduce((acc, l) => acc + (Number(l.principalPending || l.loanAmount || 0)), 0)
   }, [loans])
 
+  // Single Member WhatsApp Notice Trigger
+  const sendWhatsAppNotice = (member, targetLoan = null) => {
+    if (!member) return
+    const phone = member.mobileNumber || member.phone || member.contactNo || ''
+    const cleanPhone = phone.replace(/[^0-9]/g, '')
+
+    let msg = `*MAHADEV CO-OPERATIVE THRIFT & CREDIT SOCIETY*\n`
+    msg += `*Official Member Account Statement*\n\n`
+    msg += `Hello *${member.name}* (Vendor No: ${member.vendorNo}),\n\n`
+    msg += `📊 *Account Summary:*\n`
+    msg += `• Share Capital: ₹${(member.currentShareMoneyTotal || 0).toLocaleString('en-IN')}\n`
+    msg += `• RD Balance: ₹${(member.rdBalance || 0).toLocaleString('en-IN')}\n`
+    msg += `• Total Loan Outstanding: ₹${totalOutstanding.toLocaleString('en-IN')}\n`
+
+    if (targetLoan) {
+      msg += `\n📋 *Loan Account (${targetLoan.loanId}):*\n`
+      msg += `• Sanctioned: ₹${(targetLoan.loanAmount || 0).toLocaleString('en-IN')}\n`
+      msg += `• Pending: ₹${(targetLoan.principalPending !== undefined ? targetLoan.principalPending : targetLoan.loanAmount || 0).toLocaleString('en-IN')}\n`
+      msg += `• Status: ${targetLoan.status}\n`
+    }
+
+    if (member.defaulterStatus) {
+      msg += `\n⚠️ *Alert:* Your account has an overdue balance. Please deposit your EMI at the society counter.\n`
+    } else {
+      msg += `\nThank you for maintaining your account in good standing!\n`
+    }
+
+    msg += `\n_Generated on ${new Date().toLocaleDateString('en-IN')} via Mahadev SACCO Portal_`
+
+    const url = cleanPhone
+      ? `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(msg)}`
+      : `https://wa.me/?text=${encodeURIComponent(msg)}`
+
+    window.open(url, '_blank')
+  }
+
+  // Filter broadcast recipients based on selection
+  const targetMembers = useMemo(() => {
+    if (broadcastTarget === 'DEFAULTERS') {
+      return members.filter(m => m.defaulterStatus)
+    }
+    if (broadcastTarget === 'LOANS') {
+      return members.filter(m => Number(m.totalLoanOutstanding || 0) > 0 || m.hasActiveLoan)
+    }
+    return members
+  }, [members, broadcastTarget])
+
+  const handleBroadcastMember = (member) => {
+    const phone = member.mobileNumber || member.phone || member.contactNo || ''
+    const cleanPhone = phone.replace(/[^0-9]/g, '')
+    
+    let personalizedMsg = broadcastMessage
+      .replace(/{name}/g, member.name || 'Member')
+      .replace(/{vendorNo}/g, member.vendorNo || '')
+
+    const url = cleanPhone
+      ? `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(personalizedMsg)}`
+      : `https://wa.me/?text=${encodeURIComponent(personalizedMsg)}`
+
+    window.open(url, '_blank')
+  }
+
   // Export PDF 360 Statement
   const exportPDF = () => {
     if (!selectedMember) return
@@ -391,15 +461,36 @@ const Member360Monitor = () => {
   }
 
   return (
-    <>
+    <main className="member-360-container" id="main-content">
       <div className="mb-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
         <div>
-          <h4 className="mb-0 text-dark fw-bold">Member 360 Monitor</h4>
+          <h1 className="h4 mb-0 text-dark fw-bold">Member 360 Monitor</h1>
           <div className="small text-muted">Admin live statement inspector & member account progress tracker.</div>
         </div>
-        <CButton color="primary" size="sm" className="fw-bold shadow-sm text-white" onClick={exportPDF} disabled={!selectedMember}>
-          <CIcon icon={cilCloudDownload} className="me-2"/> Export Full 360 PDF
-        </CButton>
+        <div className="d-flex gap-2">
+          <CButton 
+            color="success" 
+            size="sm" 
+            className="fw-bold shadow-sm text-white" 
+            aria-label="Send WhatsApp Statement"
+            onClick={() => sendWhatsAppNotice(selectedMember)}
+            disabled={!selectedMember}
+          >
+            💬 WhatsApp Statement
+          </CButton>
+          <CButton 
+            color="warning" 
+            size="sm" 
+            className="fw-bold shadow-sm text-dark" 
+            aria-label="Open WhatsApp Broadcast Console"
+            onClick={() => setShowBroadcastModal(true)}
+          >
+            📢 Broadcast WhatsApp Alert
+          </CButton>
+          <CButton color="primary" size="sm" className="fw-bold shadow-sm text-white" aria-label="Export Full 360 PDF" onClick={exportPDF} disabled={!selectedMember}>
+            <CIcon icon={cilCloudDownload} className="me-2"/> Export Full 360 PDF
+          </CButton>
+        </div>
       </div>
 
       {toast.show && (
@@ -416,10 +507,13 @@ const Member360Monitor = () => {
               <CIcon icon={cilSearch} className="me-2 text-primary" /> Select Member to Monitor:
             </CCol>
             <CCol md={5} className="position-relative">
+              <label htmlFor="member-search-input" className="visually-hidden">Search Member by Name or Vendor No</label>
               <CFormInput
+                id="member-search-input"
                 type="text"
                 placeholder="🔍 Type Name or Vendor No to filter..."
                 value={searchQuery}
+                aria-label="Type Name or Vendor No to filter members"
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="shadow-sm border-primary"
               />
@@ -461,20 +555,25 @@ const Member360Monitor = () => {
               {loadingMembers ? (
                 <div className="d-flex align-items-center gap-2"><CSpinner size="sm"/> Loading members...</div>
               ) : (
-                <CFormSelect 
-                  size="md"
-                  value={selectedVendorNo}
-                  onChange={(e) => setSelectedVendorNo(e.target.value)}
-                  className="shadow-sm border-primary fw-bold"
-                  style={{ borderRadius: '0.5rem' }}
-                >
-                  <option value="">-- All Members ({members.length}) --</option>
-                  {members.map(m => (
-                    <option key={m.vendorNo} value={m.vendorNo}>
-                      {m.name} (Vendor: {m.vendorNo})
-                    </option>
-                  ))}
-                </CFormSelect>
+                <>
+                  <label htmlFor="member-select" className="visually-hidden">Select Member to Monitor</label>
+                  <CFormSelect 
+                    id="member-select"
+                    size="md"
+                    value={selectedVendorNo}
+                    aria-label="Select Member to Monitor"
+                    onChange={(e) => setSelectedVendorNo(e.target.value)}
+                    className="shadow-sm border-primary fw-bold"
+                    style={{ borderRadius: '0.5rem' }}
+                  >
+                    <option value="">-- All Members ({members.length}) --</option>
+                    {members.map(m => (
+                      <option key={m.vendorNo} value={m.vendorNo}>
+                        {m.name} (Vendor: {m.vendorNo})
+                      </option>
+                    ))}
+                  </CFormSelect>
+                </>
               )}
             </CCol>
           </CRow>
@@ -518,13 +617,21 @@ const Member360Monitor = () => {
                   </div>
                 </CCol>
 
-                <CCol md={6} className="text-md-end">
-                  <CBadge color={selectedMember.defaulterStatus ? 'danger' : 'success'} className="px-3 py-2 fs-6 me-2 shadow-sm">
+                <CCol md={6} className="text-md-end d-flex justify-content-md-end align-items-center gap-2 flex-wrap">
+                  <CBadge color={selectedMember.defaulterStatus ? 'danger' : 'success'} className="px-3 py-2 fs-6 shadow-sm">
                     {selectedMember.defaulterStatus ? '⚠ Defaulter Alert' : '✓ Good Standing'}
                   </CBadge>
                   <CBadge color="light" className="px-3 py-2 fs-6 text-dark shadow-sm">
                     Role: {selectedMember.role?.toUpperCase() || 'MEMBER'}
                   </CBadge>
+                  <CButton 
+                    color="success" 
+                    size="sm" 
+                    className="fw-bold text-white shadow-sm ms-2"
+                    onClick={() => sendWhatsAppNotice(selectedMember)}
+                  >
+                    💬 WhatsApp Notice
+                  </CButton>
                 </CCol>
               </CRow>
 
@@ -668,19 +775,19 @@ const Member360Monitor = () => {
                       <CTable bordered align="middle" hover striped small>
                         <CTableHead color="dark">
                           <CTableRow>
-                            <CTableHeaderCell onClick={() => handleRdSort('transactionDate')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                            <CTableHeaderCell scope="col" onClick={() => handleRdSort('transactionDate')} style={{ cursor: 'pointer', userSelect: 'none' }}>
                               Date {getSortIcon(rdSortConfig, 'transactionDate')}
                             </CTableHeaderCell>
-                            <CTableHeaderCell onClick={() => handleRdSort('category')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                            <CTableHeaderCell scope="col" onClick={() => handleRdSort('category')} style={{ cursor: 'pointer', userSelect: 'none' }}>
                               Category / Description {getSortIcon(rdSortConfig, 'category')}
                             </CTableHeaderCell>
-                            <CTableHeaderCell onClick={() => handleRdSort('ledgerFolio')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                            <CTableHeaderCell scope="col" onClick={() => handleRdSort('ledgerFolio')} style={{ cursor: 'pointer', userSelect: 'none' }}>
                               Ref No / Folio {getSortIcon(rdSortConfig, 'ledgerFolio')}
                             </CTableHeaderCell>
-                            <CTableHeaderCell onClick={() => handleRdSort('amount')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end">
+                            <CTableHeaderCell scope="col" onClick={() => handleRdSort('amount')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end">
                               Credit (IN) {getSortIcon(rdSortConfig, 'amount')}
                             </CTableHeaderCell>
-                            <CTableHeaderCell onClick={() => handleRdSort('amount')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end">
+                            <CTableHeaderCell scope="col" onClick={() => handleRdSort('amount')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end">
                               Debit (OUT) {getSortIcon(rdSortConfig, 'amount')}
                             </CTableHeaderCell>
                           </CTableRow>
@@ -732,25 +839,25 @@ const Member360Monitor = () => {
                       <CTable bordered align="middle" hover striped small className="mb-0 text-center">
                         <CTableHead color="dark">
                           <CTableRow>
-                            <CTableHeaderCell onClick={() => handleLoanSort('loanId')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                            <CTableHeaderCell scope="col" onClick={() => handleLoanSort('loanId')} style={{ cursor: 'pointer', userSelect: 'none' }}>
                               Loan ID {getSortIcon(loanSortConfig, 'loanId')}
                             </CTableHeaderCell>
-                            <CTableHeaderCell onClick={() => handleLoanSort('issueDate')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                            <CTableHeaderCell scope="col" onClick={() => handleLoanSort('issueDate')} style={{ cursor: 'pointer', userSelect: 'none' }}>
                               Issue / Start Date {getSortIcon(loanSortConfig, 'issueDate')}
                             </CTableHeaderCell>
-                            <CTableHeaderCell onClick={() => handleLoanSort('loanAmount')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end">
+                            <CTableHeaderCell scope="col" onClick={() => handleLoanSort('loanAmount')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end">
                               Sanctioned Amount {getSortIcon(loanSortConfig, 'loanAmount')}
                             </CTableHeaderCell>
-                            <CTableHeaderCell onClick={() => handleLoanSort('principalPending')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end">
+                            <CTableHeaderCell scope="col" onClick={() => handleLoanSort('principalPending')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end">
                               Principal Outstanding {getSortIcon(loanSortConfig, 'principalPending')}
                             </CTableHeaderCell>
-                            <CTableHeaderCell onClick={() => handleLoanSort('tenure')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-center">
+                            <CTableHeaderCell scope="col" onClick={() => handleLoanSort('tenure')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-center">
                               Tenure {getSortIcon(loanSortConfig, 'tenure')}
                             </CTableHeaderCell>
-                            <CTableHeaderCell onClick={() => handleLoanSort('status')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-center">
+                            <CTableHeaderCell scope="col" onClick={() => handleLoanSort('status')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-center">
                               Status {getSortIcon(loanSortConfig, 'status')}
                             </CTableHeaderCell>
-                            <CTableHeaderCell className="text-center">Action</CTableHeaderCell>
+                            <CTableHeaderCell scope="col" className="text-center">Action</CTableHeaderCell>
                           </CTableRow>
                         </CTableHead>
                         <CTableBody>
@@ -907,7 +1014,86 @@ const Member360Monitor = () => {
           </CTabContent>
         </>
       ) : null}
-    </>
+
+      {/* BULK WHATSAPP BROADCAST MODAL */}
+      <CModal visible={showBroadcastModal} onClose={() => setShowBroadcastModal(false)} size="lg" backdrop="static">
+        <CModalHeader className="bg-success text-white">
+          <CModalTitle className="fw-bold text-white">📢 WhatsApp Broadcast Console</CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <div className="mb-3">
+            <label className="fw-bold text-dark mb-1">1. Select Target Recipient Group:</label>
+            <CFormSelect 
+              value={broadcastTarget} 
+              onChange={(e) => setBroadcastTarget(e.target.value)}
+              className="border-primary fw-bold"
+            >
+              <option value="ALL">👥 All Registered Society Members ({members.length} Members)</option>
+              <option value="DEFAULTERS">🚨 Overdue / Defaulters Only ({members.filter(m => m.defaulterStatus).length} Members)</option>
+              <option value="LOANS">🏦 Active Loan Account Holders ({members.filter(m => Number(m.totalLoanOutstanding || 0) > 0 || m.hasActiveLoan).length} Members)</option>
+            </CFormSelect>
+          </div>
+
+          <div className="mb-3">
+            <label className="fw-bold text-dark mb-1">2. Custom Notice Message Template:</label>
+            <div className="small text-muted mb-2">Use placeholders <code>{'{name}'}</code> and <code>{'{vendorNo}'}</code> for auto-personalization.</div>
+            <CFormTextarea 
+              rows={5}
+              value={broadcastMessage}
+              onChange={(e) => setBroadcastMessage(e.target.value)}
+              className="font-monospace bg-light border-secondary"
+            />
+          </div>
+
+          <div className="border rounded p-3 bg-light">
+            <div className="fw-bold text-dark mb-2">📋 Recipient Dispatch Queue ({targetMembers.length} Members):</div>
+            <div style={{ maxHeight: '180px', overflowY: 'auto' }}>
+              <CTable hover striped small align="middle" className="mb-0">
+                <CTableHead color="light">
+                  <CTableRow>
+                    <CTableHeaderCell>Vendor No</CTableHeaderCell>
+                    <CTableHeaderCell>Member Name</CTableHeaderCell>
+                    <CTableHeaderCell>Mobile / Contact</CTableHeaderCell>
+                    <CTableHeaderCell className="text-center">Dispatch Action</CTableHeaderCell>
+                  </CTableRow>
+                </CTableHead>
+                <CTableBody>
+                  {targetMembers.map((m) => (
+                    <CTableRow key={m.vendorNo}>
+                      <CTableDataCell className="fw-bold">{m.vendorNo}</CTableDataCell>
+                      <CTableDataCell>{m.name}</CTableDataCell>
+                      <CTableDataCell className="small text-muted">{m.mobileNumber || m.phone || 'N/A'}</CTableDataCell>
+                      <CTableDataCell className="text-center">
+                        <CButton 
+                          size="sm" 
+                          color="success" 
+                          className="text-white fw-bold py-0 px-2"
+                          onClick={() => handleBroadcastMember(m)}
+                        >
+                          💬 Send WhatsApp
+                        </CButton>
+                      </CTableDataCell>
+                    </CTableRow>
+                  ))}
+                  {targetMembers.length === 0 && (
+                    <CTableRow>
+                      <CTableDataCell colSpan={4} className="text-center py-3 text-muted">
+                        No members found matching this filter group.
+                      </CTableDataCell>
+                    </CTableRow>
+                  )}
+                </CTableBody>
+              </CTable>
+            </div>
+          </div>
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={() => setShowBroadcastModal(false)}>
+            Close
+          </CButton>
+        </CModalFooter>
+      </CModal>
+    </main>
   )
 }
 

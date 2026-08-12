@@ -17,6 +17,7 @@ const AppHeader = () => {
         {/* The Hamburger Menu Icon */}
         <CHeaderToggler 
           className="ps-1"
+          aria-label="Toggle navigation"
           onClick={() => dispatch({ type: 'set', sidebarShow: !sidebarShow })}
         >
           <CIcon icon={cilMenu} size="lg" />
