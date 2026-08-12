@@ -74,11 +74,51 @@ const ShareSavings = () => {
     fetchLedgerData()
   }, []) // The empty brackets mean "only run this once when the page opens"
 
-  // Filter the live transactions based on the search box
-  const filteredDeposits = transactions.filter((trx) => {
-    const searchString = Object.values(trx).join(' ').toLowerCase()
-    return searchString.includes(searchTerm.toLowerCase())
-  })
+  // State and handler for interactive column sorting
+  const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' })
+
+  const handleSort = (key) => {
+    let direction = 'asc'
+    if (sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc'
+    }
+    setSortConfig({ key, direction })
+  }
+
+  const getSortIcon = (key) => {
+    if (sortConfig.key !== key) return ' ⇅'
+    return sortConfig.direction === 'asc' ? ' ▲' : ' ▼'
+  }
+
+  // Filter & sort the live transactions based on search and selected column
+  const filteredDeposits = useMemo(() => {
+    const list = transactions.filter((trx) => {
+      const searchString = Object.values(trx).join(' ').toLowerCase()
+      return searchString.includes(searchTerm.toLowerCase())
+    })
+
+    if (!sortConfig.key) return list
+
+    return [...list].sort((a, b) => {
+      let aVal = a[sortConfig.key]
+      let bVal = b[sortConfig.key]
+
+      if (sortConfig.key === 'amount') {
+        aVal = Number(aVal || 0)
+        bVal = Number(bVal || 0)
+      } else if (sortConfig.key === 'date') {
+        aVal = new Date(aVal || 0).getTime()
+        bVal = new Date(bVal || 0).getTime()
+      } else {
+        aVal = String(aVal || '').toLowerCase()
+        bVal = String(bVal || '').toLowerCase()
+      }
+
+      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1
+      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [transactions, searchTerm, sortConfig])
 
   // Visual helper functions
   const getStatusBadge = (status) => {
@@ -124,7 +164,7 @@ const ShareSavings = () => {
 
     csv += "Trx ID,Date,Member Name,Vendor No,Deposit Type,Amount (Rs),Status\n"
     transactions.forEach(trx => {
-      const safeId = trx.id ? String(trx.id).slice(-6).toUpperCase() : 'N/A'
+      const safeId = trx.transactionId || (trx.id ? String(trx.id).slice(-8).toUpperCase() : 'N/A')
       csv += `"${safeId}","${trx.date || ''}","${trx.name || ''}","${trx.vendorNo || ''}","${trx.type || ''}",${trx.amount || 0},"${trx.status || ''}"\n`
     })
 
@@ -227,12 +267,24 @@ const ShareSavings = () => {
             <CTable hover striped align="middle" className="mb-0">
               <CTableHead color="light">
                 <CTableRow>
-                  <CTableHeaderCell className="ps-4 py-3">Trx ID</CTableHeaderCell>
-                  <CTableHeaderCell className="py-3">Date</CTableHeaderCell>
-                  <CTableHeaderCell className="py-3">Member Info</CTableHeaderCell>
-                  <CTableHeaderCell className="py-3">Deposit Type</CTableHeaderCell>
-                  <CTableHeaderCell className="text-end py-3">Amount (₹)</CTableHeaderCell>
-                  <CTableHeaderCell className="text-center pe-4 py-3">Status</CTableHeaderCell>
+                  <CTableHeaderCell onClick={() => handleSort('transactionId')} style={{ cursor: 'pointer', userSelect: 'none' }} className="ps-4 py-3">
+                    Trx ID {getSortIcon('transactionId')}
+                  </CTableHeaderCell>
+                  <CTableHeaderCell onClick={() => handleSort('date')} style={{ cursor: 'pointer', userSelect: 'none' }} className="py-3">
+                    Date {getSortIcon('date')}
+                  </CTableHeaderCell>
+                  <CTableHeaderCell onClick={() => handleSort('name')} style={{ cursor: 'pointer', userSelect: 'none' }} className="py-3">
+                    Member Info {getSortIcon('name')}
+                  </CTableHeaderCell>
+                  <CTableHeaderCell onClick={() => handleSort('type')} style={{ cursor: 'pointer', userSelect: 'none' }} className="py-3">
+                    Deposit Type {getSortIcon('type')}
+                  </CTableHeaderCell>
+                  <CTableHeaderCell onClick={() => handleSort('amount')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end py-3">
+                    Amount (₹) {getSortIcon('amount')}
+                  </CTableHeaderCell>
+                  <CTableHeaderCell onClick={() => handleSort('status')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-center pe-4 py-3">
+                    Status {getSortIcon('status')}
+                  </CTableHeaderCell>
                 </CTableRow>
               </CTableHead>
               <CTableBody>

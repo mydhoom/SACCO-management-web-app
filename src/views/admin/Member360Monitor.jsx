@@ -208,10 +208,80 @@ const Member360Monitor = () => {
     fetchMemberData()
   }, [selectedVendorNo, members, apiBase, token])
 
-  // Calculated totals
-  const rdTransactions = useMemo(() => {
-    return transactions.filter(tx => tx.category === 'RD' || tx.category === 'SHARE' || tx.category === 'INTEREST')
-  }, [transactions])
+  // Sorting state for Loans & Passbook tables
+  const [loanSortConfig, setLoanSortConfig] = useState({ key: null, direction: 'asc' })
+  const [rdSortConfig, setRdSortConfig] = useState({ key: 'transactionDate', direction: 'desc' })
+
+  const handleLoanSort = (key) => {
+    let direction = 'asc'
+    if (loanSortConfig.key === key && loanSortConfig.direction === 'asc') {
+      direction = 'desc'
+    }
+    setLoanSortConfig({ key, direction })
+  }
+
+  const handleRdSort = (key) => {
+    let direction = 'asc'
+    if (rdSortConfig.key === key && rdSortConfig.direction === 'asc') {
+      direction = 'desc'
+    }
+    setRdSortConfig({ key, direction })
+  }
+
+  const getSortIcon = (config, key) => {
+    if (config.key !== key) return ' ⇅'
+    return config.direction === 'asc' ? ' ▲' : ' ▼'
+  }
+
+  // Calculated totals & sorted lists
+  const sortedRdTransactions = useMemo(() => {
+    const list = transactions.filter(tx => tx.category === 'RD' || tx.category === 'SHARE' || tx.category === 'INTEREST')
+    if (!rdSortConfig.key) return list
+    return [...list].sort((a, b) => {
+      let aVal, bVal
+      if (rdSortConfig.key === 'transactionDate') {
+        aVal = new Date(a.transactionDate || a.createdAt || 0).getTime()
+        bVal = new Date(b.transactionDate || b.createdAt || 0).getTime()
+      } else if (rdSortConfig.key === 'amount') {
+        aVal = Number(a.amount || 0)
+        bVal = Number(b.amount || 0)
+      } else {
+        aVal = String(a[rdSortConfig.key] || '').toLowerCase()
+        bVal = String(b[rdSortConfig.key] || '').toLowerCase()
+      }
+
+      if (aVal < bVal) return rdSortConfig.direction === 'asc' ? -1 : 1
+      if (aVal > bVal) return rdSortConfig.direction === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [transactions, rdSortConfig])
+
+  const sortedLoans = useMemo(() => {
+    if (!loanSortConfig.key) return loans
+    return [...loans].sort((a, b) => {
+      let aVal, bVal
+      if (loanSortConfig.key === 'loanId') {
+        aVal = String(a.loanId || a._id || '').toLowerCase()
+        bVal = String(b.loanId || b._id || '').toLowerCase()
+      } else if (loanSortConfig.key === 'issueDate') {
+        aVal = new Date(a.startDate || a.issueDate || a.createdAt || 0).getTime()
+        bVal = new Date(b.startDate || b.issueDate || b.createdAt || 0).getTime()
+      } else if (loanSortConfig.key === 'principalPending') {
+        aVal = Number(a.principalPending !== undefined ? a.principalPending : a.loanAmount || 0)
+        bVal = Number(b.principalPending !== undefined ? b.principalPending : b.loanAmount || 0)
+      } else if (loanSortConfig.key === 'loanAmount' || loanSortConfig.key === 'tenure') {
+        aVal = Number(a[loanSortConfig.key] || 0)
+        bVal = Number(b[loanSortConfig.key] || 0)
+      } else {
+        aVal = String(a[loanSortConfig.key] || '').toLowerCase()
+        bVal = String(b[loanSortConfig.key] || '').toLowerCase()
+      }
+
+      if (aVal < bVal) return loanSortConfig.direction === 'asc' ? -1 : 1
+      if (aVal > bVal) return loanSortConfig.direction === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [loans, loanSortConfig])
 
   const loanTransactions = useMemo(() => {
     return transactions.filter(tx => tx.category === 'LOAN_REPAYMENT' || tx.category === 'LOAN_EMI' || tx.category === 'LOAN_DISBURSEMENT')
@@ -585,28 +655,38 @@ const Member360Monitor = () => {
             {activeTab === 'rd' && (
               <CCard className="shadow-sm border-0 mb-4">
                 <CCardHeader className="bg-white fw-bold py-3 d-flex justify-content-between align-items-center">
-                  <span>Passbook & Savings Ledger ({rdTransactions.length} Entries)</span>
+                  <span>Passbook & Savings Ledger ({sortedRdTransactions.length} Entries)</span>
                   <CButton color="success" size="sm" className="text-white fw-bold" onClick={exportPDF}>
                     <CIcon icon={cilCloudDownload} className="me-2"/>Export Passbook PDF
                   </CButton>
                 </CCardHeader>
                 <CCardBody>
-                  {rdTransactions.length === 0 ? (
+                  {sortedRdTransactions.length === 0 ? (
                     <CAlert color="info" className="text-center py-4">No RD/Savings transactions found for this member.</CAlert>
                   ) : (
                     <div className="table-responsive">
                       <CTable bordered align="middle" hover striped small>
                         <CTableHead color="dark">
                           <CTableRow>
-                            <CTableHeaderCell>Date</CTableHeaderCell>
-                            <CTableHeaderCell>Category / Description</CTableHeaderCell>
-                            <CTableHeaderCell>Ref No / Folio</CTableHeaderCell>
-                            <CTableHeaderCell className="text-end">Credit (IN)</CTableHeaderCell>
-                            <CTableHeaderCell className="text-end">Debit (OUT)</CTableHeaderCell>
+                            <CTableHeaderCell onClick={() => handleRdSort('transactionDate')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                              Date {getSortIcon(rdSortConfig, 'transactionDate')}
+                            </CTableHeaderCell>
+                            <CTableHeaderCell onClick={() => handleRdSort('category')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                              Category / Description {getSortIcon(rdSortConfig, 'category')}
+                            </CTableHeaderCell>
+                            <CTableHeaderCell onClick={() => handleRdSort('ledgerFolio')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                              Ref No / Folio {getSortIcon(rdSortConfig, 'ledgerFolio')}
+                            </CTableHeaderCell>
+                            <CTableHeaderCell onClick={() => handleRdSort('amount')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end">
+                              Credit (IN) {getSortIcon(rdSortConfig, 'amount')}
+                            </CTableHeaderCell>
+                            <CTableHeaderCell onClick={() => handleRdSort('amount')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end">
+                              Debit (OUT) {getSortIcon(rdSortConfig, 'amount')}
+                            </CTableHeaderCell>
                           </CTableRow>
                         </CTableHead>
                         <CTableBody>
-                          {rdTransactions.map(tx => (
+                          {sortedRdTransactions.map(tx => (
                             <CTableRow key={tx._id || tx.transactionId}>
                               <CTableDataCell>{new Date(tx.transactionDate || tx.createdAt).toLocaleDateString('en-IN')}</CTableDataCell>
                               <CTableDataCell><strong className="text-primary">{tx.category}</strong> — {tx.description || '-'}</CTableDataCell>
@@ -631,7 +711,7 @@ const Member360Monitor = () => {
             {activeTab === 'loan' && (
               <CCard className="shadow-sm border-0 mb-4">
                 <CCardHeader className="bg-white fw-bold py-3 d-flex justify-content-between align-items-center">
-                  <span>Loan Accounts ({loans.length} Total)</span>
+                  <span>Loan Accounts ({sortedLoans.length} Total)</span>
                   {selectedLoan && (
                     <div className="d-flex gap-2">
                       <CButton color="secondary" size="sm" variant="outline" onClick={() => setSelectedLoan(null)}>
@@ -644,7 +724,7 @@ const Member360Monitor = () => {
                   )}
                 </CCardHeader>
                 <CCardBody>
-                  {loans.length === 0 ? (
+                  {sortedLoans.length === 0 ? (
                     <CAlert color="info" className="text-center py-4">This member currently has no recorded loans.</CAlert>
                   ) : !selectedLoan ? (
                     /* MODE A: COMPACT LIST OF LOANS */
@@ -652,17 +732,29 @@ const Member360Monitor = () => {
                       <CTable bordered align="middle" hover striped small className="mb-0 text-center">
                         <CTableHead color="dark">
                           <CTableRow>
-                            <CTableHeaderCell>Loan ID</CTableHeaderCell>
-                            <CTableHeaderCell>Issue / Start Date</CTableHeaderCell>
-                            <CTableHeaderCell className="text-end">Sanctioned Amount</CTableHeaderCell>
-                            <CTableHeaderCell className="text-end">Principal Outstanding</CTableHeaderCell>
-                            <CTableHeaderCell className="text-center">Tenure</CTableHeaderCell>
-                            <CTableHeaderCell className="text-center">Status</CTableHeaderCell>
+                            <CTableHeaderCell onClick={() => handleLoanSort('loanId')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                              Loan ID {getSortIcon(loanSortConfig, 'loanId')}
+                            </CTableHeaderCell>
+                            <CTableHeaderCell onClick={() => handleLoanSort('issueDate')} style={{ cursor: 'pointer', userSelect: 'none' }}>
+                              Issue / Start Date {getSortIcon(loanSortConfig, 'issueDate')}
+                            </CTableHeaderCell>
+                            <CTableHeaderCell onClick={() => handleLoanSort('loanAmount')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end">
+                              Sanctioned Amount {getSortIcon(loanSortConfig, 'loanAmount')}
+                            </CTableHeaderCell>
+                            <CTableHeaderCell onClick={() => handleLoanSort('principalPending')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-end">
+                              Principal Outstanding {getSortIcon(loanSortConfig, 'principalPending')}
+                            </CTableHeaderCell>
+                            <CTableHeaderCell onClick={() => handleLoanSort('tenure')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-center">
+                              Tenure {getSortIcon(loanSortConfig, 'tenure')}
+                            </CTableHeaderCell>
+                            <CTableHeaderCell onClick={() => handleLoanSort('status')} style={{ cursor: 'pointer', userSelect: 'none' }} className="text-center">
+                              Status {getSortIcon(loanSortConfig, 'status')}
+                            </CTableHeaderCell>
                             <CTableHeaderCell className="text-center">Action</CTableHeaderCell>
                           </CTableRow>
                         </CTableHead>
                         <CTableBody>
-                          {loans.map(loan => {
+                          {sortedLoans.map(loan => {
                             const amount = Number(loan.loanAmount || 0)
                             const pending = Number(loan.principalPending !== undefined ? loan.principalPending : loan.loanAmount || 0)
                             const issueDate = loan.startDate || loan.issueDate || loan.createdAt
