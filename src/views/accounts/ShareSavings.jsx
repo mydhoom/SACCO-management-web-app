@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import axios from 'axios'
+import { API_BASE_URL } from '../../apiConfig'
 import {
   CCard,
   CCardHeader,
@@ -17,15 +18,17 @@ import {
   CInputGroupText,
   CBadge,
   CButton,
-  CSpinner // Added a spinner for loading state
+  CSpinner,
+  CAlert
 } from '@coreui/react'
 import CIcon from '@coreui/icons-react'
-import { cilSearch, cilBank, cilArrowTop, cilWallet, cilSave } from '@coreui/icons'
+import { cilSearch, cilBank, cilArrowTop, cilWallet, cilSave, cilCloudDownload } from '@coreui/icons'
 
 const ShareSavings = () => {
   // 1. State for search and loading
   const [searchTerm, setSearchTerm] = useState('')
   const [isLoading, setIsLoading] = useState(true)
+  const [errorMsg, setErrorMsg] = useState('')
 
   // 2. State for our live database data
   const [summaryData, setSummaryData] = useState({
@@ -40,21 +43,20 @@ const ShareSavings = () => {
   useEffect(() => {
     const fetchLedgerData = async () => {
       try {
-        // Grab the login token (adjust 'token' if you saved it under a different name in your Login file)
-        const token = localStorage.getItem('token') 
+        setErrorMsg('')
+        const token = localStorage.getItem('token') || localStorage.getItem('adminToken')
         const config = {
           headers: {
-            Authorization: `Bearer ${token}` 
+            Authorization: token ? `Bearer ${token}` : ''
           }
         }
 
-        // Fetch both summary totals and recent transactions from your new backend routes
+        // Fetch both summary totals and recent transactions using API_BASE_URL
         const [summaryResponse, transactionsResponse] = await Promise.all([
-          axios.get('/api/savings/summary', config),
-          axios.get('/api/savings/transactions', config)
+          axios.get(`${API_BASE_URL}/api/savings/summary`, config),
+          axios.get(`${API_BASE_URL}/api/savings/transactions`, config)
         ])
 
-        // Save the fetched data into React's memory
         if (summaryResponse.data.success) {
           setSummaryData(summaryResponse.data.data)
         }
@@ -63,9 +65,9 @@ const ShareSavings = () => {
         }
       } catch (error) {
         console.error("Error fetching ledger data:", error)
-        // Optionally add a toast or alert here later if the request fails
+        setErrorMsg(error.response?.data?.message || error.message || 'Failed to fetch ledger data.')
       } finally {
-        setIsLoading(false) // Stop the loading spinner
+        setIsLoading(false)
       }
     }
 
@@ -107,6 +109,35 @@ const ShareSavings = () => {
     </CCard>
   )
 
+  const handleGenerateReport = () => {
+    if (!transactions.length) {
+      alert("No transaction records available to export.")
+      return
+    }
+
+    let csv = "SHARE & SAVINGS LEDGER REPORT\n"
+    csv += `Generated Date,${new Date().toLocaleDateString('en-IN')}\n\n`
+    csv += `Total Share Capital,${summaryData.shares}\n`
+    csv += `Mandatory Savings,${summaryData.mandatory}\n`
+    csv += `Voluntary Savings,${summaryData.voluntary}\n`
+    csv += `This Month Collection,${summaryData.thisMonthCollection}\n\n`
+
+    csv += "Trx ID,Date,Member Name,Vendor No,Deposit Type,Amount (Rs),Status\n"
+    transactions.forEach(trx => {
+      const safeId = trx.id ? String(trx.id).slice(-6).toUpperCase() : 'N/A'
+      csv += `"${safeId}","${trx.date || ''}","${trx.name || ''}","${trx.vendorNo || ''}","${trx.type || ''}",${trx.amount || 0},"${trx.status || ''}"\n`
+    })
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `Share_Savings_Ledger_${new Date().toISOString().split('T')[0]}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   // Show a loading spinner while waiting for the server
   if (isLoading) {
     return (
@@ -123,10 +154,17 @@ const ShareSavings = () => {
           <h4 className="mb-0 text-dark fw-bold">Share & Savings Ledger</h4>
           <div className="small text-medium-emphasis">Division-wide capital, mandatory, and voluntary savings overview.</div>
         </div>
-        <CButton color="success" className="text-white shadow-sm">
+        <CButton color="success" className="text-white shadow-sm fw-bold" onClick={handleGenerateReport}>
+          <CIcon icon={cilCloudDownload} className="me-2" />
           Generate Monthly Report
         </CButton>
       </div>
+
+      {errorMsg && (
+        <CAlert color="danger" dismissible className="mb-4">
+          {errorMsg}
+        </CAlert>
+      )}
 
       <CRow className="mb-2">
         <CCol sm={6} lg={3}>
@@ -198,34 +236,37 @@ const ShareSavings = () => {
                 </CTableRow>
               </CTableHead>
               <CTableBody>
-                {filteredDeposits.map((trx) => (
-                  <CTableRow key={trx.id}>
-                    <CTableDataCell className="ps-4 text-medium-emphasis small font-monospace">
-                      {/* Using the last 6 characters of the MongoDB ID to keep it visually clean */}
-                      ...{trx.id.substring(trx.id.length - 6)}
-                    </CTableDataCell>
-                    <CTableDataCell className="fw-medium">
-                      {trx.date}
-                    </CTableDataCell>
-                    <CTableDataCell>
-                      <div className="fw-semibold text-dark">{trx.name}</div>
-                      <div className="small text-medium-emphasis">Vendor: {trx.vendorNo}</div>
-                    </CTableDataCell>
-                    <CTableDataCell>
-                      <CBadge color={getTypeBadgeColor(trx.type)} shape="rounded-pill" className="bg-opacity-10 text-dark border">
-                        {trx.type}
-                      </CBadge>
-                    </CTableDataCell>
-                    <CTableDataCell className="text-end fw-bold text-success">
-                      + {trx.amount.toLocaleString('en-IN')}
-                    </CTableDataCell>
-                    <CTableDataCell className="text-center pe-4">
-                      <CBadge color={getStatusBadge(trx.status)} shape="rounded-pill" className="px-3 py-2">
-                        {trx.status}
-                      </CBadge>
-                    </CTableDataCell>
-                  </CTableRow>
-                ))}
+                {filteredDeposits.map((trx, idx) => {
+                  const safeId = trx.id ? String(trx.id).slice(-6).toUpperCase() : `TRX-${idx + 1}`
+
+                  return (
+                    <CTableRow key={trx.id || idx}>
+                      <CTableDataCell className="ps-4 text-medium-emphasis small font-monospace">
+                        ...{safeId}
+                      </CTableDataCell>
+                      <CTableDataCell className="fw-medium">
+                        {trx.date || 'N/A'}
+                      </CTableDataCell>
+                      <CTableDataCell>
+                        <div className="fw-semibold text-dark">{trx.name || 'Unknown'}</div>
+                        <div className="small text-medium-emphasis">Vendor: {trx.vendorNo || 'N/A'}</div>
+                      </CTableDataCell>
+                      <CTableDataCell>
+                        <CBadge color={getTypeBadgeColor(trx.type)} shape="rounded-pill" className="bg-opacity-10 text-dark border">
+                          {trx.type || 'Savings'}
+                        </CBadge>
+                      </CTableDataCell>
+                      <CTableDataCell className="text-end fw-bold text-success">
+                        + {(Number(trx.amount) || 0).toLocaleString('en-IN')}
+                      </CTableDataCell>
+                      <CTableDataCell className="text-center pe-4">
+                        <CBadge color={getStatusBadge(trx.status)} shape="rounded-pill" className="px-3 py-2">
+                          {trx.status || 'Credited'}
+                        </CBadge>
+                      </CTableDataCell>
+                    </CTableRow>
+                  )
+                })}
                 
                 {filteredDeposits.length === 0 && (
                   <CTableRow>
