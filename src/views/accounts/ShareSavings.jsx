@@ -356,7 +356,7 @@ const ShareSavings = () => {
                 
                 {filteredDeposits.length === 0 && (
                   <CTableRow>
-                    <CTableDataCell colSpan="6" className="text-center py-5 text-muted">
+                    <CTableDataCell colSpan="7" className="text-center py-5 text-muted">
                       No transactions found.
                     </CTableDataCell>
                   </CTableRow>
