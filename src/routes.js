@@ -37,6 +37,7 @@ const CorrectionManager = lazy(() => import('./views/admin/CorrectionManager.jsx
 // --- System & Admin Utilities ---
 const SystemSettings = lazy(() => import('./views/system/SystemSettings'))
 const DatabasePurge = lazy(() => import('./views/admin/DatabasePurge.jsx'))
+const DuplicateReviewQueue = lazy(() => import('./views/admin/DuplicateReviewQueue.jsx'))
 
 // --- ROUTES CONFIG ---
 export const routes = [
@@ -63,6 +64,7 @@ export const routes = [
   { path: '/admin/approvals', name: 'Pending Approvals', element: Approvals },
   { path: '/admin/master-journal', name: 'Master Journal', element: MasterJournal },
   { path: '/admin/database-purge', name: 'Database Purge Utility', element: DatabasePurge },
+  { path: '/admin/duplicate-review', name: 'Duplicate Review Queue', element: DuplicateReviewQueue },
 
   // Loan Operations
   { path: '/loan-operations/process', name: 'Process Loans', element: ProcessLoans },

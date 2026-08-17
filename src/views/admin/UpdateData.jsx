@@ -6,8 +6,9 @@ import {
   CBadge, CFormSelect
 } from '@coreui/react'
 import CIcon from '@coreui/icons-react'
-import { cilCloudUpload, cilFile, cilDescription, cilCheckCircle, cilWarning, cilLightbulb, cilArrowRight } from '@coreui/icons'
+import { cilCloudUpload, cilFile, cilDescription, cilCheckCircle, cilWarning, cilLightbulb, cilArrowRight, cilExternalLink } from '@coreui/icons'
 import * as xlsx from 'xlsx'
+import { runDuplicateDetection } from '../../utils/duplicateDetector'
 
 const SCHEMAS = {
   master: {
@@ -84,6 +85,9 @@ const UpdateData = () => {
   const [isAiMapping, setIsAiMapping] = useState(false)
   const [processedData, setProcessedData] = useState([])
   const [isUploading, setIsUploading] = useState(false)
+  // Duplicate detection state
+  const [isDuplicateChecking, setIsDuplicateChecking] = useState(false)
+  const [duplicateFlags, setDuplicateFlags] = useState([])
 
   // --- TEMPLATE GENERATOR ---
   const downloadTemplate = (type, templateName) => {
@@ -270,8 +274,9 @@ const UpdateData = () => {
   }
 
   // --- 2. PROCESS MAPPED DATA FOR VERIFICATION ---
-  const processMappedData = () => {
-    const targetSchema = SCHEMAS[activeType];
+  const processMappedData = async () => {
+    const type = activeType;
+    const targetSchema = SCHEMAS[type];
     const processed = rawRows.map((row, index) => {
       let newRow = { _id: index, _selected: true, _isValid: true, _errors: [] };
       
@@ -305,6 +310,18 @@ const UpdateData = () => {
 
     setProcessedData(processed);
     setStage('VERIFY');
+
+    // ── Run duplicate detection after data is ready ──
+    setIsDuplicateChecking(true);
+    setDuplicateFlags([]);
+    try {
+      const flags = await runDuplicateDetection(processed, type, apiBase);
+      setDuplicateFlags(flags);
+    } catch (err) {
+      console.warn('Duplicate detection error (non-blocking):', err);
+    } finally {
+      setIsDuplicateChecking(false);
+    }
   }
 
   // --- 3. FINAL UPLOAD ---
@@ -488,6 +505,59 @@ const UpdateData = () => {
               </CCol>
             )}
           </CRow>
+
+          {/* ── Duplicate Detection Banner ────────────────────────────── */}
+          {isDuplicateChecking && (
+            <CAlert color="info" className="py-2 mb-3 d-flex align-items-center gap-2">
+              <CSpinner size="sm" />
+              <span>Scanning for duplicate entries...</span>
+            </CAlert>
+          )}
+          {!isDuplicateChecking && duplicateFlags.length > 0 && (
+            <CAlert color="warning" className="py-3 mb-3">
+              <div className="d-flex align-items-start gap-3">
+                <CIcon icon={cilWarning} size="xl" className="text-warning flex-shrink-0 mt-1" />
+                <div className="flex-grow-1">
+                  <div className="fw-bold mb-1">
+                    ⚠️ {duplicateFlags.length} Potential Duplicate{duplicateFlags.length > 1 ? 's' : ''} Detected
+                  </div>
+                  <div className="small text-muted mb-2">
+                    The system has flagged {duplicateFlags.length} row{duplicateFlags.length > 1 ? 's' : ''} that 
+                    may already exist in the database or appear more than once in this file. 
+                    The system will <strong>NOT</strong> auto-reject them — you must review each one.
+                  </div>
+                  <div className="d-flex gap-2 flex-wrap">
+                    {duplicateFlags.filter(f => f.type === 'INTRA_BATCH').length > 0 && (
+                      <CBadge color="danger" className="px-2 py-1">
+                        📄 {duplicateFlags.filter(f => f.type === 'INTRA_BATCH').length} within-file duplicates
+                      </CBadge>
+                    )}
+                    {duplicateFlags.filter(f => f.type === 'EXISTING_RECORD').length > 0 && (
+                      <CBadge color="warning" textColor="dark" className="px-2 py-1">
+                        🗄️ {duplicateFlags.filter(f => f.type === 'EXISTING_RECORD').length} already in database
+                      </CBadge>
+                    )}
+                  </div>
+                </div>
+                <CButton
+                  color="warning"
+                  className="fw-bold text-dark flex-shrink-0"
+                  href="#/admin/duplicate-review"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <CIcon icon={cilExternalLink} className="me-2" />
+                  Review Duplicates
+                </CButton>
+              </div>
+            </CAlert>
+          )}
+          {!isDuplicateChecking && duplicateFlags.length === 0 && processedData.length > 0 && (
+            <CAlert color="success" className="py-2 mb-3">
+              <CIcon icon={cilCheckCircle} className="me-2" />
+              <strong>No duplicates detected.</strong> All rows in this file appear to be unique.
+            </CAlert>
+          )}
 
           <div className="table-responsive" style={{ maxHeight: '500px', overflowX: 'auto' }}>
             <CTable bordered align="middle" hover small striped>

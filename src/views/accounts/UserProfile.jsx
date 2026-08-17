@@ -309,7 +309,7 @@ export default function UserProfile() {
         </CModalBody>
         <CModalFooter>
           <CButton color="secondary" variant="outline" onClick={() => setScanModalVisible(false)} disabled={isScanning}>
-            <CIcon icon={cilX} className="me-1" /> Cancel
+            <CIcon icon={cilBan} className="me-1" /> Cancel
           </CButton>
           {scanResult && !isScanning && (
             <CButton color="primary" onClick={handleAutoFill}>
@@ -382,7 +382,7 @@ export default function UserProfile() {
                     className="fw-semibold"
                     style={{ whiteSpace: 'nowrap' }}
                   >
-                    <CIcon icon={cilScan} className="me-2" />
+                    <CIcon icon={cilQrCode} className="me-2" />
                     📇 Scan ID Card
                   </CButton>
                   <CButton
@@ -675,7 +675,7 @@ export default function UserProfile() {
                       <CIcon icon={cilImage} className="me-1" /> Change Photo
                     </CButton>
                     <CButton type="button" color="info" variant="outline" size="sm" onClick={() => idScanInputRef.current.click()}>
-                      <CIcon icon={cilScan} className="me-1" /> Scan ID Card
+                      <CIcon icon={cilQrCode} className="me-1" /> Scan ID Card
                     </CButton>
                   </div>
                   <CButton type="submit" color="primary" className="fw-bold px-5" disabled={isLoading}>

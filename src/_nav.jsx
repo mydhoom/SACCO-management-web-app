@@ -5,7 +5,7 @@ import {
   cilDescription, cilSpeedometer, cilBriefcase, cilWallet, cilMoney, 
   cilFolderOpen, cilPeople, cilCloudUpload, cilUserPlus,
   cilBank, cilChartPie, cilCheckCircle, cilSpreadsheet, cilSettings,
-  cilTrash, cilBook, cilPencil
+  cilTrash, cilBook, cilPencil, cilWarning
 } from '@coreui/icons'
 
 const getNavItems = (currentUserRole) => [
@@ -175,6 +175,12 @@ const getNavItems = (currentUserRole) => [
       name: 'Update Data',
       to: '/admin/upload',
       icon: <CIcon icon={cilCloudUpload} customClassName="nav-icon" />,
+    },
+    {
+      component: CNavItem,
+      name: 'Duplicate Review',
+      to: '/admin/duplicate-review',
+      icon: <CIcon icon={cilWarning} customClassName="nav-icon text-warning" />,
     },
     {
       component: CNavItem,
