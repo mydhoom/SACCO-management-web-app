@@ -1,19 +1,32 @@
-const express = require('express');
+﻿const express = require('express');
 const router = express.Router();
-const TransactionLog = require('../models/TransactionLog'); // Linking to the model we built yesterday!
-// Import your new controller and the auth middleware
-const { getMyTransactions } = require('../controllers/transactionController');
+const TransactionLog = require('../models/TransactionLog');
+const { getMyTransactions, bulkSharesUpload, bulkEmiUpload } = require('../controllers/transactionController');
 const { authenticate } = require('../middlewares/authMiddleware');
 
-// --- YOUR NEW ROUTE ---
+// Middleware: restrict to admin or executive only
+const adminOnly = (req, res, next) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'executive') {
+    return res.status(403).json({ success: false, message: 'Admin access required.' });
+  }
+  next();
+};
+
+// GET: Passbook for logged-in member (or any member for admin/executive)
 router.get('/my-transactions', authenticate, getMyTransactions);
-// GET: Fetch all transactions for the Master Journal (Sorted newest first)
+
+// POST: Bulk payroll deduction — Share Capital + RD (from UpdateData screen)
+router.post('/bulk-shares', authenticate, adminOnly, bulkSharesUpload);
+
+// POST: Bulk EMI deduction batch (from UpdateData screen)
+router.post('/bulk-emis', authenticate, adminOnly, bulkEmiUpload);
+
+// GET: Master Journal — all transactions (admin view, newest first)
 router.get('/', async (req, res) => {
   try {
     const transactions = await TransactionLog.find()
       .sort({ createdAt: -1 })
-      .populate('memberId', 'firstName lastName vendorNo'); 
-      
+      .populate('memberId', 'firstName lastName vendorNo');
     res.status(200).json(transactions);
   } catch (error) {
     console.error("Error fetching transactions:", error);
