@@ -84,6 +84,29 @@ const login = async (req, res) => {
   }
 };
 
+// --- HELPER: Smart value resolvers to protect existing balances from 0 / blank overwrite ---
+const resolveNumber = (incomingVal, existingVal = 0) => {
+  if (incomingVal === undefined || incomingVal === null || incomingVal === '') {
+    return existingVal || 0;
+  }
+  const cleanStr = String(incomingVal).replace(/₹|,|\s/g, '');
+  const parsed = Number(cleanStr);
+  if (isNaN(parsed) || parsed === 0) {
+    // If incoming is 0, empty, or invalid, preserve the existing figure!
+    return existingVal || 0;
+  }
+  return parsed;
+};
+
+const resolveString = (incomingVal, existingVal = '') => {
+  if (incomingVal === undefined || incomingVal === null) return existingVal || '';
+  const trimmed = String(incomingVal).trim();
+  if (!trimmed || ['N/A', 'NA', 'NIL', '-', 'NULL', 'UNDEFINED'].includes(trimmed.toUpperCase())) {
+    return existingVal || '';
+  }
+  return trimmed;
+};
+
 // --- 3. EXCEL BULK UPLOAD LOGIC ---
 const bulkUpload = async (req, res) => {
   try {
@@ -92,18 +115,44 @@ const bulkUpload = async (req, res) => {
     let updated = 0;
 
     for (const member of membersData) {
-      const existingUser = await User.findOne({ vendorNo: member.vendorNo });
+      const vendorNo = member.vendorNo ? String(member.vendorNo).trim() : null;
+      if (!vendorNo) continue;
+
+      const existingUser = await User.findOne({ vendorNo });
       
       if (existingUser) {
-        // Update financials for existing member
-        await User.updateOne({ vendorNo: member.vendorNo }, { $set: member });
+        // Smart merge: protect existing figures from 0 / blank overwrite
+        existingUser.name = resolveString(member.name, existingUser.name);
+        existingUser.designation = resolveString(member.designation, existingUser.designation);
+        existingUser.phone = resolveString(member.phone || member.phoneNumber, existingUser.phone || existingUser.phoneNumber);
+        existingUser.email = resolveString(member.email || member.emailId, existingUser.email || existingUser.emailId);
+        existingUser.circle = resolveString(member.circle, existingUser.circle);
+        existingUser.division = resolveString(member.division, existingUser.division);
+        existingUser.subDivision = resolveString(member.subDivision, existingUser.subDivision);
+        existingUser.section = resolveString(member.section || member.electricalSection, existingUser.section || existingUser.electricalSection);
+        existingUser.upiId = resolveString(member.upiId, existingUser.upiId);
+        existingUser.bankName = resolveString(member.bankName, existingUser.bankName);
+        existingUser.accountNumber = resolveString(member.accountNumber || member.bankAccountNumber, existingUser.accountNumber || existingUser.bankAccountNumber);
+        existingUser.ifscCode = resolveString(member.ifscCode, existingUser.ifscCode);
+        existingUser.aadhaarNo = resolveString(member.aadhaarNo || member.aadharNumber, existingUser.aadhaarNo || existingUser.aadharNumber);
+        existingUser.panNo = resolveString(member.panNo || member.panNumber, existingUser.panNo || existingUser.panNumber);
+
+        // Smart numerical protection (0 in Excel will NOT overwrite existing balance)
+        existingUser.currentShareMoneyTotal = resolveNumber(member.currentShareMoneyTotal, existingUser.currentShareMoneyTotal);
+        existingUser.rdBalance = resolveNumber(member.rdBalance, existingUser.rdBalance);
+        existingUser.monthlyRDAmount = resolveNumber(member.monthlyRDAmount, existingUser.monthlyRDAmount);
+        existingUser.pendingLoanBalance = resolveNumber(member.pendingLoanBalance, existingUser.pendingLoanBalance);
+        existingUser.pendingLoanInterest = resolveNumber(member.pendingLoanInterest, existingUser.pendingLoanInterest);
+        existingUser.monthlyEmiAmount = resolveNumber(member.monthlyEmiAmount, existingUser.monthlyEmiAmount);
+
+        await existingUser.save();
         updated++;
       } else {
         // Add new member
         member.status = 'approved';
         
         if (!member.password) {
-          member.password = await bcrypt.hash(member.vendorNo, 10);
+          member.password = await bcrypt.hash(vendorNo, 10);
         }
         
         const newUser = new User(member);
@@ -430,24 +479,35 @@ const systemInitialization = async (req, res) => {
       let user = await User.findOne({ vendorNo });
       
       if (!user) {
+        // Brand new user: initialize with Excel values or clean defaults
         user = new User({
           vendorNo: vendorNo,
-          name: row['Full_Name'] || 'Unknown',
-          designation: row['Designation'] || 'N/A',
-          phone: row['Phone'] || '',
-          email: row['Email'] || '',
-          circle: row['Circle'] || '',
-          division: row['Division'] || '',
-          subDivision: row['Sub_Division'] || '',
-          section: row['Section'] || '',
-          upiId: row['UPI_ID'] || '',
+          societyAccountNo: resolveString(row['Society_Account_No'], ''),
+          name: resolveString(row['Full_Name'], 'Unknown Member'),
+          designation: resolveString(row['Designation'], 'N/A'),
+          phone: resolveString(row['Phone'], ''),
+          email: resolveString(row['Email'], ''),
+          circle: resolveString(row['Circle'], ''),
+          division: resolveString(row['Division'], ''),
+          subDivision: resolveString(row['Sub_Division'], ''),
+          section: resolveString(row['Section'], ''),
+          upiId: resolveString(row['UPI_ID'], ''),
+          bankName: resolveString(row['Bank_Name'], ''),
+          accountNumber: resolveString(row['Bank_Account_Number'], ''),
+          ifscCode: resolveString(row['IFSC_Code'], ''),
+          aadhaarNo: resolveString(row['Aadhar_Number'], ''),
+          panNo: resolveString(row['PAN_Number'], ''),
+          nomineeName: resolveString(row['Nominee_Name'], ''),
+          nomineeRelation: resolveString(row['Nominee_Relationship'], ''),
+          nomineeContact: resolveString(row['Nominee_Phone'], ''),
 
-          // --- UPDATED TO MATCH YOUR EXACT SCHEMA ---
-          currentShareMoneyTotal: Number(row['Opening_Share_Balance']) || 0,
-          rdBalance: Number(row['Opening_RD_Balance']) || 0,
-          monthlyRDAmount: Number(row['Monthly_RD_Amount']) || 0,
-          pendingLoanBalance: Number(row['Opening_Principal_Pending']) || 0, 
-          monthlyEmiAmount: Number(row['Current_EMI_Amount']) || 0,
+          // Initial balances (0 if not in sheet)
+          currentShareMoneyTotal: resolveNumber(row['Opening_Share_Balance'], 0),
+          rdBalance: resolveNumber(row['Opening_RD_Balance'], 0),
+          monthlyRDAmount: resolveNumber(row['Monthly_RD_Amount'], 0),
+          pendingLoanBalance: resolveNumber(row['Opening_Principal_Pending'], 0), 
+          pendingLoanInterest: resolveNumber(row['Opening_Interest_Pending'], 0),
+          monthlyEmiAmount: resolveNumber(row['Current_EMI_Amount'], 0),
 
           role: 'member',
           password: 'DefaultPassword123!', 
@@ -456,31 +516,75 @@ const systemInitialization = async (req, res) => {
         await user.save();
         usersCreated++;
       } else {
-        // --- UPDATED TO MATCH YOUR EXACT SCHEMA ---
-        user.currentShareMoneyTotal = Number(row['Opening_Share_Balance']) || user.currentShareMoneyTotal;
-        user.rdBalance = Number(row['Opening_RD_Balance']) || user.rdBalance;
-        user.monthlyRDAmount = Number(row['Monthly_RD_Amount']) || user.monthlyRDAmount;
-        user.pendingLoanBalance = Number(row['Opening_Principal_Pending']) || user.pendingLoanBalance;
-        user.monthlyEmiAmount = Number(row['Current_EMI_Amount']) || user.monthlyEmiAmount;
-        if (row['UPI_ID']) user.upiId = String(row['UPI_ID']).trim(); // update UPI if provided
+        // EXISTING MEMBER: Smart Merge (0 or blank cell in Excel NEVER overwrites existing data)
+        user.societyAccountNo = resolveString(row['Society_Account_No'], user.societyAccountNo);
+        user.name = resolveString(row['Full_Name'], user.name);
+        user.designation = resolveString(row['Designation'], user.designation);
+        user.phone = resolveString(row['Phone'], user.phone || user.phoneNumber);
+        user.email = resolveString(row['Email'], user.email || user.emailId);
+        user.circle = resolveString(row['Circle'], user.circle);
+        user.division = resolveString(row['Division'], user.division);
+        user.subDivision = resolveString(row['Sub_Division'], user.subDivision);
+        user.section = resolveString(row['Section'], user.section || user.electricalSection);
+        user.upiId = resolveString(row['UPI_ID'], user.upiId);
+        user.bankName = resolveString(row['Bank_Name'], user.bankName);
+        user.accountNumber = resolveString(row['Bank_Account_Number'], user.accountNumber || user.bankAccountNumber);
+        user.ifscCode = resolveString(row['IFSC_Code'], user.ifscCode);
+        user.aadhaarNo = resolveString(row['Aadhar_Number'], user.aadhaarNo || user.aadharNumber);
+        user.panNo = resolveString(row['PAN_Number'], user.panNo || user.panNumber);
+        user.nomineeName = resolveString(row['Nominee_Name'], user.nomineeName);
+        user.nomineeRelation = resolveString(row['Nominee_Relationship'], user.nomineeRelation || user.nomineeRelationship);
+        user.nomineeContact = resolveString(row['Nominee_Phone'], user.nomineeContact || user.nomineePhone);
+
+        // Smart Numerical Protection: 0 in Excel is IGNORED, old figures are kept intact!
+        user.currentShareMoneyTotal = resolveNumber(row['Opening_Share_Balance'], user.currentShareMoneyTotal);
+        user.rdBalance = resolveNumber(row['Opening_RD_Balance'], user.rdBalance);
+        user.monthlyRDAmount = resolveNumber(row['Monthly_RD_Amount'], user.monthlyRDAmount);
+        user.pendingLoanBalance = resolveNumber(row['Opening_Principal_Pending'], user.pendingLoanBalance);
+        user.pendingLoanInterest = resolveNumber(row['Opening_Interest_Pending'], user.pendingLoanInterest);
+        user.monthlyEmiAmount = resolveNumber(row['Current_EMI_Amount'], user.monthlyEmiAmount);
+
         await user.save();
       }
 
-      const pendingPrincipal = Number(row['Opening_Principal_Pending']) || 0;
-      const pendingInterest = Number(row['Opening_Interest_Pending']) || 0; // NEW ADDITION
-      
-      if (pendingPrincipal > 0 || pendingInterest > 0) { // Check both!
-        const newLoan = new Loan({
-          memberId: user._id,
-          loanId: row['Active_Loan_ID'] || `LN-${vendorNo}-${Date.now()}`,
-          principalPending: pendingPrincipal,
-          interestPending: pendingInterest, // NEW ADDITION
-          emiAmount: Number(row['Current_EMI_Amount']) || 0,
-          status: 'ACTIVE',
-          issuedDate: initDate 
+      // --- LOAN HANDLING ---
+      const incomingPrincipal = resolveNumber(row['Opening_Principal_Pending'], 0);
+      const incomingInterest  = resolveNumber(row['Opening_Interest_Pending'], 0);
+      const incomingEmi       = resolveNumber(row['Current_EMI_Amount'], 0);
+      const incomingLoanId    = resolveString(row['Active_Loan_ID'], '');
+
+      if (incomingPrincipal > 0 || incomingInterest > 0) {
+        const loanIdToUse = incomingLoanId || `LN-${vendorNo}-${Date.now()}`;
+
+        // Check if member already has an active loan or matching loanId
+        let existingLoan = await Loan.findOne({
+          $or: [
+            { loanId: loanIdToUse },
+            { memberId: user._id, status: 'ACTIVE' }
+          ]
         });
-        await newLoan.save();
-        loansCreated++;
+
+        if (existingLoan) {
+          // Update existing active loan balances if incoming figures are positive
+          if (incomingPrincipal > 0) existingLoan.principalPending = incomingPrincipal;
+          if (incomingInterest > 0) existingLoan.interestPending = incomingInterest;
+          if (incomingEmi > 0) existingLoan.emiAmount = incomingEmi;
+          await existingLoan.save();
+        } else {
+          // Create new active loan
+          const newLoan = new Loan({
+            memberId: user._id,
+            loanId: loanIdToUse,
+            loanAmount: incomingPrincipal,
+            principalPending: incomingPrincipal,
+            interestPending: incomingInterest,
+            emiAmount: incomingEmi,
+            status: 'ACTIVE',
+            issuedDate: initDate 
+          });
+          await newLoan.save();
+          loansCreated++;
+        }
       }
     }
 
