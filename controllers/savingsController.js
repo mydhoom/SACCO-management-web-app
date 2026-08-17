@@ -74,9 +74,28 @@ exports.getDivisionSummary = async (req, res) => {
     let voluntary = 0;
 
     summaryByFolio.forEach(item => {
-      if (item._id === '155') shares = item.total;
-      if (item._id === '154') mandatory = item.total;
+      if (item._id === '155' || item._id === '151') shares += item.total;
+      if (item._id === '154') mandatory += item.total;
+      if (item._id === '156') voluntary += item.total;
     });
+
+    // Also calculate totals directly from User accounts
+    const userAgg = await User.aggregate([
+      {
+        $group: {
+          _id: null,
+          userShareCapital: { $sum: { $ifNull: ["$currentShareMoneyTotal", { $ifNull: ["$shareMoney", 0] }] } },
+          userRDPool: { $sum: { $ifNull: ["$rdBalance", { $ifNull: ["$cumulativeRDDeposit", 0] }] } }
+        }
+      }
+    ]);
+
+    const userShareCapital = userAgg[0]?.userShareCapital || 0;
+    const userRDPool = userAgg[0]?.userRDPool || 0;
+
+    // Use whichever source has the active balances
+    const finalShares = Math.max(shares, userShareCapital);
+    const finalMandatory = Math.max(mandatory, userRDPool);
 
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
@@ -102,8 +121,8 @@ exports.getDivisionSummary = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        shares: Math.max(0, shares), 
-        mandatory: Math.max(0, mandatory), 
+        shares: Math.max(0, finalShares), 
+        mandatory: Math.max(0, finalMandatory), 
         voluntary: Math.max(0, voluntary),
         thisMonthCollection: monthlyCollection[0]?.totalCollected || 0
       }
@@ -146,7 +165,7 @@ exports.getRecentTransactions = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(50);
 
-    const formattedTransactions = transactions.map(trx => ({
+    let formattedTransactions = transactions.map(trx => ({
       id: trx._id,
       transactionId: trx.transactionId,
       date: new Date(trx.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
@@ -156,6 +175,46 @@ exports.getRecentTransactions = async (req, res) => {
       type: trx.category || 'Savings', 
       status: trx.status === 'REVERSED' ? 'Reversed' : 'Credited' 
     }));
+
+    // If no raw transactions exist yet, show opening balance line items for registered members with non-zero Share Capital or RD
+    if (formattedTransactions.length === 0) {
+      const users = await User.find({
+        $or: [
+          { currentShareMoneyTotal: { $gt: 0 } },
+          { shareMoney: { $gt: 0 } },
+          { rdBalance: { $gt: 0 } }
+        ]
+      });
+
+      users.forEach(u => {
+        const shareAmt = u.currentShareMoneyTotal || u.shareMoney || 0;
+        if (shareAmt > 0) {
+          formattedTransactions.push({
+            id: `INIT-SHARE-${u._id}`,
+            transactionId: `SC-${u.vendorNo || 'INIT'}`,
+            date: new Date(u.createdAt || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+            vendorNo: u.vendorNo || 'N/A',
+            name: u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Member',
+            amount: shareAmt,
+            type: 'Share Capital',
+            status: 'Credited'
+          });
+        }
+        const rdAmt = u.rdBalance || u.cumulativeRDDeposit || 0;
+        if (rdAmt > 0) {
+          formattedTransactions.push({
+            id: `INIT-RD-${u._id}`,
+            transactionId: `RD-${u.vendorNo || 'INIT'}`,
+            date: new Date(u.createdAt || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+            vendorNo: u.vendorNo || 'N/A',
+            name: u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Member',
+            amount: rdAmt,
+            type: 'Mandatory Savings',
+            status: 'Credited'
+          });
+        }
+      });
+    }
 
     res.status(200).json({ success: true, data: formattedTransactions });
   } catch (error) {
