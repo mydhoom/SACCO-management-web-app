@@ -56,16 +56,13 @@ const MembersDirectory = () => {
 
   const [isSaving, setIsSaving] = useState(false)
 
-  // Fetch all members from the live Render backend
-  // Fetch all members from the live Render backend
+  // Fetch all members from the backend
   const fetchMembers = async () => {
     try {
-      const token = localStorage.getItem('token'); // <-- 1. Get the token
-      
       const response = await fetch(`${API_BASE_URL}/api/auth/users`, {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${token}`, // <-- 2. Send the token in the header
+          'Authorization': `Bearer ${getAuthToken()}`,
           'Content-Type': 'application/json'
         }
       })
@@ -124,6 +121,8 @@ const MembersDirectory = () => {
   };
   // --------------------------------------------------
 
+  const getAuthToken = () => localStorage.getItem('adminToken') || localStorage.getItem('token') || '';
+
   // Delete a member
   const handleDelete = async (vendorNo) => {
     if (!window.confirm(`Are you sure you want to completely remove Vendor No: ${vendorNo}?`)) return
@@ -131,15 +130,22 @@ const MembersDirectory = () => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/users/${vendorNo}`, {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${getAuthToken()}`,
+          'Content-Type': 'application/json'
+        }
       })
 
       if (response.ok) {
         setMembers(members.filter(member => member.vendorNo !== vendorNo))
+        alert(`Member with Vendor No: ${vendorNo} successfully deleted.`)
       } else {
-        alert("Failed to delete member.")
+        const errData = await response.json().catch(() => ({}))
+        alert(`Failed to delete member: ${errData.error || 'Unauthorized or server error.'}`)
       }
     } catch (error) {
       console.error("Error deleting member:", error)
+      alert("Network error while deleting member.")
     }
   }
 
@@ -150,11 +156,11 @@ const MembersDirectory = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/api/auth/reset-password/${userId}`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${getAuthToken()}`,
+          'Content-Type': 'application/json'
         }
       });
 
@@ -227,12 +233,11 @@ const MembersDirectory = () => {
   const handleAddMember = async () => {
     setIsSaving(true)
     try {
-      const token = localStorage.getItem('token')
       const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` 
+          'Authorization': `Bearer ${getAuthToken()}` 
         },
         body: JSON.stringify(addFormData)
       })
@@ -257,12 +262,11 @@ const MembersDirectory = () => {
     if (!editFormData) return
     setIsSaving(true)
     try {
-      const token = localStorage.getItem('token')
       const response = await fetch(`${API_BASE_URL}/api/auth/users/${editFormData._id}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json', 
-          'Authorization': `Bearer ${token}` 
+          'Authorization': `Bearer ${getAuthToken()}` 
         },
         body: JSON.stringify(editFormData)
       })
