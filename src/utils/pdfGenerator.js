@@ -110,11 +110,14 @@ export const generatePDF = async ({
       doc.line(40, currentY, pageWidth - 40, currentY);
       currentY += 8;
 
+      const isTwoColumn = section.columns && section.columns.length === 2;
       autoTable(doc, {
         ...tableConfig,
         startY: currentY,
         head: [section.columns],
         body: section.data,
+        columnStyles: isTwoColumn ? { 0: { cellWidth: 'auto' }, 1: { halign: 'right', cellWidth: 140 } } : undefined,
+        headStyles: isTwoColumn ? { ...tableConfig.headStyles, 1: { halign: 'right' } } : tableConfig.headStyles,
       });
       currentY = doc.lastAutoTable.finalY + 20;
     }

@@ -104,7 +104,7 @@ const AdminDashboard = () => {
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     setError(null)
-    const token = localStorage.getItem('adminToken')
+    const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
     const headers = { Authorization: `Bearer ${token}` }
 
     try {
@@ -297,7 +297,7 @@ const AdminDashboard = () => {
               {/* ── KPI Row 1: Member & Society Health ── */}
               <CRow className="mb-2">
                 <CCol xs={6} lg={3}>
-                  <KpiCard color="primary" icon={cilGroup} title="Total Members" value={fmtNum(kpis.members?.approved)} subValue={`${kpis.members?.pending || 0} pending approval`} link="/directory" />
+                  <KpiCard color="primary" icon={cilGroup} title="Total Members" value={fmtNum(kpis.members?.approved)} subValue={`${kpis.members?.pending || 0} pending approval`} link="/admin/directory" />
                 </CCol>
                 <CCol xs={6} lg={3}>
                   <KpiCard color="success" icon={cilChartPie} title="Total Share Capital" value={fmt(kpis.financials?.shareCapital)} subValue={`Dividends paid: ${fmt(kpis.financials?.totalDividends)}`} />

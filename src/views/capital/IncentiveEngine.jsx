@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import API_BASE_URL from '../../apiConfig'
 import {
   CCard, CCardBody, CCardHeader, CCol, CRow, CButton, CTable, CTableHead,
   CTableRow, CTableHeaderCell, CTableBody, CTableDataCell, CFormInput,
@@ -17,17 +18,31 @@ const IncentiveEngine = () => {
   const [isLoading, setIsLoading] = useState(true)
   const [isDisbursing, setIsDisbursing] = useState(false)
 
-  // Mock Fetching Data
+  // Live Fetching Data
   useEffect(() => {
-    setTimeout(() => {
-      setMembers([
-        { vendorNo: '1045', name: 'Amit Kumar', shareCapital: 25000, loanInterestPaid: 12500 },
-        { vendorNo: '2088', name: 'Sunita Sharma', shareCapital: 15000, loanInterestPaid: 4200 },
-        { vendorNo: '3102', name: 'Rajesh Singh', shareCapital: 50000, loanInterestPaid: 0 },
-        { vendorNo: '4019', name: 'Priya Verma', shareCapital: 10000, loanInterestPaid: 21000 },
-      ])
-      setIsLoading(false)
-    }, 800)
+    const fetchMembers = async () => {
+      try {
+        const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
+        const res = await fetch(`${API_BASE_URL}/api/auth/users`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        if (!res.ok) throw new Error("Failed to fetch members")
+        const data = await res.json()
+        const formatted = (Array.isArray(data) ? data : []).map(u => ({
+          vendorNo: u.vendorNo,
+          name: u.name || `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unknown',
+          shareCapital: Number(u.currentShareMoneyTotal || u.shareCapital || 0),
+          loanInterestPaid: Number(u.loanInterestPaid || 0)
+        }))
+        setMembers(formatted)
+      } catch (e) {
+        console.error("IncentiveEngine fetch error:", e)
+        setMembers([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    fetchMembers()
   }, [])
 
   // Calculate Totals

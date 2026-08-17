@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import API_BASE_URL from '../../apiConfig'
 import {
   CCard, CCardBody, CCardHeader, CCol, CRow, CTable, CTableBody,
   CTableDataCell, CTableHead, CTableHeaderCell, CTableRow, CButton,
@@ -36,6 +37,8 @@ const Approvals = () => {
   const [transferMode, setTransferMode] = useState('CHEQUE')
   const [referenceNo, setReferenceNo] = useState('')
 
+  const getAuthToken = () => localStorage.getItem('adminToken') || localStorage.getItem('token') || ''
+
   useEffect(() => { 
     fetchPendingUsers()
     fetchPendingLoans() 
@@ -44,8 +47,8 @@ const Approvals = () => {
   const fetchPendingUsers = async () => {
     setLoadingUsers(true)
     try {
-      const response = await fetch('http://localhost:5000/api/auth/pending-users', {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
+      const response = await fetch(`${API_BASE_URL}/api/auth/pending-users`, {
+        headers: { 'Authorization': `Bearer ${getAuthToken()}` }
       })
       if (!response.ok) throw new Error("Failed to fetch")
       const data = await response.json()
@@ -60,8 +63,8 @@ const Approvals = () => {
   const fetchPendingLoans = async () => {
     setLoadingLoans(true)
     try {
-      const response = await fetch('http://localhost:5000/api/loans', {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
+      const response = await fetch(`${API_BASE_URL}/api/loans`, {
+        headers: { 'Authorization': `Bearer ${getAuthToken()}` }
       })
       if (!response.ok) throw new Error("Failed to fetch")
       const data = await response.json()
@@ -76,11 +79,11 @@ const Approvals = () => {
 
   const handleUserAction = async (id, status) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/auth/approve-user/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/auth/approve-user/${id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+          'Authorization': `Bearer ${getAuthToken()}`
         },
         body: JSON.stringify({ status })
       })
@@ -129,11 +132,11 @@ const Approvals = () => {
     
     try {
       const loanIdToUpdate = selectedLoan.loanId || selectedLoan._id || selectedLoan.id;
-      const response = await fetch(`http://localhost:5000/api/loans/${loanIdToUpdate}`, { 
+      const response = await fetch(`${API_BASE_URL}/api/loans/${loanIdToUpdate}`, { 
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+          'Authorization': `Bearer ${getAuthToken()}`
         },
         body: JSON.stringify({ 
           status: 'APPROVED',
@@ -165,11 +168,11 @@ const Approvals = () => {
     if (!window.confirm(`Are you sure you want to permanently reject and remove application ${id}?`)) return;
 
     try {
-      const response = await fetch(`http://localhost:5000/api/loans/${id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/loans/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+          'Authorization': `Bearer ${getAuthToken()}`
         },
         body: JSON.stringify({ status: 'REJECTED' }) 
       });

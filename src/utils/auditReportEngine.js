@@ -507,7 +507,7 @@ export const exportTrialBalancePDF = async (reportData, timeframeType, selectedF
   let totalCredit = 0;
   creditRows.forEach(r => totalCredit += r.closingCr);
 
-  const tableColumn = ["L.F.", "DEBIT BALANCES", "Amount (₹)", "L.F.", "CREDIT BALANCES", "Amount (₹)"];
+  const tableColumn = ["L.F.", "DEBIT BALANCES", "Amount (Rs.)", "L.F.", "CREDIT BALANCES", "Amount (Rs.)"];
   
   const tableRows = [];
   const maxRows = Math.max(debitRows.length, creditRows.length);
@@ -554,29 +554,7 @@ export const exportTrialBalancePDF = async (reportData, timeframeType, selectedF
 // ==========================================
 
 /**
- * generatePnLReport - Builds a full Profit & Loss account from transaction data.
- *
- * INCOME (Credit side):
- *   - Folio 153 (Interest on Loans)
- *   - Folio 153 with category ADMISSION (Admission Fees)
- *   - Folio 101 Bank Interest Receipts (tagged as "BANK_INTEREST" or "INTEREST_INCOME")
- *   - Penal Charges (tagged "PENAL")
- *   - Misc Income
- *
- * EXPENDITURE (Debit side):
- *   - Folio 154 Credit (Interest on RD / Savings to members)
- *   - Bank Charges (tagged "BANK_CHARGE")
- *   - Audit / Legal Fees (tagged "AUDIT")
- *   - Office / Stationery (tagged "OFFICE" / "STATIONERY")
- *   - IT / Software (tagged "IT")
- *   - Honorarium (tagged "HONORARIUM")
- *   - Bad Debt Provision (5% of new loans)
- *
- * APPROPRIATIONS (Indian Co-operative Act):
- *   - 25% Statutory Reserve Fund
- *   - 10% Dividend Equalization Fund
- *   - 5% Common Good Fund
- *   - Distributable Surplus (remainder)
+ * generatePnLReport - Builds a comprehensive Profit & Loss account from transactions.
  */
 export const generatePnLReport = (transactions, timeframeType, selectedMonth, selectedYear, selectedFY) => {
   let startDate, endDate;
@@ -614,79 +592,79 @@ export const generatePnLReport = (transactions, timeframeType, selectedMonth, se
   // Monthly breakdown map (for monthly-wise trend in P&L)
   const monthlyBreakdown = {};
 
-  transactions.forEach(tx => {
+  (transactions || []).forEach(tx => {
+    // Skip reversed transactions
+    if (tx.status === 'REVERSED' || tx.category === 'REVERSAL') return;
+
     const txDate = new Date(tx.transactionDate || tx.createdAt);
-    if (txDate < startDate || txDate > endDate) return;
+    if (isNaN(txDate) || txDate < startDate || txDate > endDate) return;
     const monthKey = txDate.toLocaleString('default', { month: 'short', year: 'numeric' });
 
     if (!monthlyBreakdown[monthKey]) {
       monthlyBreakdown[monthKey] = { income: 0, expense: 0, surplus: 0 };
     }
 
-    const cat = (tx.category || tx.description || '').toUpperCase();
+    const cat = String(tx.category || tx.description || '').toUpperCase();
+    const amount = Math.abs(Number(tx.amount) || 0);
+    const folio = String(tx.ledgerFolio || '').trim();
+    const isCredit = tx.entryType === 'CREDIT';
+    const isDebit = tx.entryType === 'DEBIT';
 
-    // ---- INCOME ----
-    if (tx.ledgerFolio === '153' && tx.entryType === 'CREDIT') {
-      if (cat.includes('ADMISSION') || cat.includes('FEE')) {
-        income.admissionFees += tx.amount;
-      } else {
-        income.loanInterest += tx.amount;
-      }
-      monthlyBreakdown[monthKey].income += tx.amount;
-    }
-    if ((cat.includes('BANK_INTEREST') || cat.includes('INTEREST_INCOME')) && tx.entryType === 'CREDIT') {
-      income.bankInterest += tx.amount;
-      monthlyBreakdown[monthKey].income += tx.amount;
-    }
-    if (cat.includes('PENAL') && tx.entryType === 'CREDIT') {
-      income.penalCharges += tx.amount;
-      monthlyBreakdown[monthKey].income += tx.amount;
-    }
-    if (cat.includes('MISC') && tx.entryType === 'CREDIT') {
-      income.miscIncome += tx.amount;
-      monthlyBreakdown[monthKey].income += tx.amount;
-    }
-
-    // New loan disbursement tracking (for bad debt provision)
-    if (tx.ledgerFolio === '152' && tx.entryType === 'DEBIT') {
-      totalNewLoans += tx.amount;
+    // ── INCOME (Credit Side) ──
+    if (cat.includes('ADMISSION') || cat.includes('ADMISSION_FEE') || cat.includes('ENTRY_FEE')) {
+      income.admissionFees += amount;
+      monthlyBreakdown[monthKey].income += amount;
+    } else if (cat.includes('BANK_INTEREST') || cat.includes('FD_INTEREST') || cat.includes('SAVINGS_INTEREST_RECEIVED')) {
+      income.bankInterest += amount;
+      monthlyBreakdown[monthKey].income += amount;
+    } else if (cat.includes('PENAL') || cat.includes('PENALTY') || cat.includes('LATE_FEE')) {
+      income.penalCharges += amount;
+      monthlyBreakdown[monthKey].income += amount;
+    } else if (folio === '153' || cat === 'INTEREST_INCOME' || cat.includes('LOAN_INTEREST') || cat.includes('INTEREST ON LOAN')) {
+      income.loanInterest += amount;
+      monthlyBreakdown[monthKey].income += amount;
+    } else if (cat.includes('MISC_INCOME') || cat.includes('DIVIDEND_INCOME')) {
+      income.miscIncome += amount;
+      monthlyBreakdown[monthKey].income += amount;
     }
 
-    // ---- EXPENDITURE ----
-    if (tx.ledgerFolio === '154' && tx.entryType === 'CREDIT') {
-      expense.savingsInterest += tx.amount;
-      monthlyBreakdown[monthKey].expense += tx.amount;
+    // New loan disbursement tracking (for 5% statutory bad debt provision)
+    if (folio === '152' && isDebit) {
+      totalNewLoans += amount;
+    } else if (cat === 'LOAN_DISBURSEMENT') {
+      totalNewLoans += amount;
     }
-    if (cat.includes('BANK_CHARGE') || cat.includes('BANK CHARGE')) {
-      expense.bankCharges += tx.amount;
-      monthlyBreakdown[monthKey].expense += tx.amount;
-    }
-    if (cat.includes('AUDIT') || cat.includes('LEGAL')) {
-      expense.auditFees += tx.amount;
-      monthlyBreakdown[monthKey].expense += tx.amount;
-    }
-    if (cat.includes('OFFICE') || cat.includes('STATIONERY')) {
-      expense.officeExpense += tx.amount;
-      monthlyBreakdown[monthKey].expense += tx.amount;
-    }
-    if (cat.includes('IT') || cat.includes('SOFTWARE')) {
-      expense.itExpense += tx.amount;
-      monthlyBreakdown[monthKey].expense += tx.amount;
-    }
-    if (cat.includes('HONORARIUM') || cat.includes('SALARY')) {
-      expense.honorarium += tx.amount;
-      monthlyBreakdown[monthKey].expense += tx.amount;
+
+    // ── EXPENDITURE (Debit Side) ──
+    if (folio === '154' || cat.includes('RD_INTEREST') || cat.includes('MEMBER_INTEREST') || cat.includes('DIVIDEND_PAYOUT')) {
+      expense.savingsInterest += amount;
+      monthlyBreakdown[monthKey].expense += amount;
+    } else if (cat.includes('BANK_CHARGE') || cat.includes('BANK CHARGE') || cat.includes('BANK_CHARGES') || cat.includes('UPI_CHARGE')) {
+      expense.bankCharges += amount;
+      monthlyBreakdown[monthKey].expense += amount;
+    } else if (cat.includes('AUDIT') || cat.includes('AUDIT_FEE') || cat.includes('LEGAL')) {
+      expense.auditFees += amount;
+      monthlyBreakdown[monthKey].expense += amount;
+    } else if (cat.includes('OFFICE') || cat.includes('STATIONERY') || cat.includes('STATIONARY_MISC') || cat.includes('PRINTING')) {
+      expense.officeExpense += amount;
+      monthlyBreakdown[monthKey].expense += amount;
+    } else if (cat.includes('IT') || cat.includes('SOFTWARE') || cat.includes('HOSTING') || cat.includes('DOMAIN') || cat.includes('CLOUD')) {
+      expense.itExpense += amount;
+      monthlyBreakdown[monthKey].expense += amount;
+    } else if (cat.includes('HONORARIUM') || cat.includes('SALARY') || cat.includes('ALLOWANCE')) {
+      expense.honorarium += amount;
+      monthlyBreakdown[monthKey].expense += amount;
     }
   });
 
-  // Bad debt provision = 5% of new loans disbursed in period
+  // Statutory Bad Debt Provision: 5% of new loans disbursed in period
   expense.badDebtProvision = Math.round(totalNewLoans * 0.05);
 
   const totalIncome = Object.values(income).reduce((a, b) => a + b, 0);
   const totalExpense = Object.values(expense).reduce((a, b) => a + b, 0);
   const grossSurplus = totalIncome - totalExpense;
 
-  // Statutory Appropriations (Indian Co-operative Act)
+  // Statutory Appropriations (Indian Co-operative Societies Act)
   const appropriations = {
     statutoryReserve: grossSurplus > 0 ? Math.round(grossSurplus * 0.25) : 0,
     dividendEqualization: grossSurplus > 0 ? Math.round(grossSurplus * 0.10) : 0,
@@ -714,49 +692,50 @@ export const generatePnLReport = (transactions, timeframeType, selectedMonth, se
 
 export const exportPnLExcel = (pnl, timeframeType, selectedFY, selectedMonth, selectedYear) => {
   const wb = XLSX.utils.book_new();
-  const fmt = (n) => Math.round(n);
+  const fmt = (n) => Math.round(n || 0);
 
   // ---- Sheet 1: P&L Summary ----
   const summaryData = [
-    ['MAHADEV SOCIETY – HPSEBL EMPLOYEES CO-OPERATIVE'],
+    ['MAHADEV CO-OPERATIVE THRIFT & CREDIT SOCIETY LTD.'],
+    ['HPSEBL SHIMLA CITY ELECTRICAL DIVISION'],
     ['PROFIT & LOSS ACCOUNT'],
     [`Period: ${pnl.periodString}`],
     [],
-    ['INCOME', '', 'AMOUNT (₹)'],
-    ['Interest on Loans', '', fmt(pnl.income.loanInterest)],
-    ['Admission Fees', '', fmt(pnl.income.admissionFees)],
-    ['Bank / FD Interest', '', fmt(pnl.income.bankInterest)],
-    ['Penal Charges', '', fmt(pnl.income.penalCharges)],
-    ['Miscellaneous Income', '', fmt(pnl.income.miscIncome)],
-    ['TOTAL INCOME', '', fmt(pnl.totalIncome)],
+    ['INCOME HEADS', 'AMOUNT (Rs.)'],
+    ['Interest on Loans (Folio 153)', fmt(pnl.income.loanInterest)],
+    ['Admission & Membership Fees', fmt(pnl.income.admissionFees)],
+    ['Bank & FD Interest Receipts', fmt(pnl.income.bankInterest)],
+    ['Penal Charges & Late Fees', fmt(pnl.income.penalCharges)],
+    ['Miscellaneous Income', fmt(pnl.income.miscIncome)],
+    ['TOTAL INCOME (A)', fmt(pnl.totalIncome)],
     [],
-    ['EXPENDITURE', '', 'AMOUNT (₹)'],
-    ['Interest on RD / Savings (Members)', '', fmt(pnl.expense.savingsInterest)],
-    ['Bank / UPI Charges', '', fmt(pnl.expense.bankCharges)],
-    ['Audit & Legal Fees', '', fmt(pnl.expense.auditFees)],
-    ['Office & Stationery', '', fmt(pnl.expense.officeExpense)],
-    ['IT / Software Maintenance', '', fmt(pnl.expense.itExpense)],
-    ['Honorarium / Salaries', '', fmt(pnl.expense.honorarium)],
-    ['Bad Debt Provision (5% of new loans)', '', fmt(pnl.expense.badDebtProvision)],
-    ['TOTAL EXPENDITURE', '', fmt(pnl.totalExpense)],
+    ['EXPENDITURE HEADS', 'AMOUNT (Rs.)'],
+    ['Interest on RD & Member Savings (Folio 154)', fmt(pnl.expense.savingsInterest)],
+    ['Bank, UPI & Gateway Charges', fmt(pnl.expense.bankCharges)],
+    ['Audit & Legal Professional Fees', fmt(pnl.expense.auditFees)],
+    ['Office, Printing & Stationery Expenses', fmt(pnl.expense.officeExpense)],
+    ['IT, Cloud & Software Maintenance', fmt(pnl.expense.itExpense)],
+    ['Staff Honorarium & Allowances', fmt(pnl.expense.honorarium)],
+    ['Bad Debt Provision (5% of Disbursed Loans)', fmt(pnl.expense.badDebtProvision)],
+    ['TOTAL EXPENDITURE (B)', fmt(pnl.totalExpense)],
     [],
-    ['GROSS SURPLUS / (DEFICIT)', '', fmt(pnl.grossSurplus)],
+    ['GROSS SURPLUS / (DEFICIT) (A - B)', fmt(pnl.grossSurplus)],
     [],
-    ['STATUTORY APPROPRIATIONS'],
-    ['25% – Statutory Reserve Fund', '', fmt(pnl.appropriations.statutoryReserve)],
-    ['10% – Dividend Equalization Fund', '', fmt(pnl.appropriations.dividendEqualization)],
-    ['5% – Common Good Fund', '', fmt(pnl.appropriations.commonGoodFund)],
-    ['DISTRIBUTABLE SURPLUS', '', fmt(pnl.appropriations.distributableSurplus)],
+    ['STATUTORY APPROPRIATIONS (Indian Co-operative Act)', 'AMOUNT (Rs.)'],
+    ['25% Statutory Reserve Fund', fmt(pnl.appropriations.statutoryReserve)],
+    ['10% Dividend Equalization Fund', fmt(pnl.appropriations.dividendEqualization)],
+    ['5% Common Good / Welfare Fund', fmt(pnl.appropriations.commonGoodFund)],
+    ['NET DISTRIBUTABLE SURPLUS', fmt(pnl.appropriations.distributableSurplus)],
   ];
 
   const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
-  ws1['!cols'] = [{ wch: 40 }, { wch: 10 }, { wch: 18 }];
-  XLSX.utils.book_append_sheet(wb, ws1, 'P&L Summary');
+  ws1['!cols'] = [{ wch: 48 }, { wch: 22 }];
+  XLSX.utils.book_append_sheet(wb, ws1, 'P&L Statement');
 
-  // ---- Sheet 2: Monthly Trend ----
+  // ---- Sheet 2: Monthly Trend (for Yearly reports) ----
   if (timeframeType === 'YEARLY' && Object.keys(pnl.monthlyBreakdown).length > 0) {
     const monthlyData = [
-      ['Month', 'Income (₹)', 'Expenditure (₹)', 'Surplus / (Deficit) (₹)'],
+      ['Month', 'Income (Rs.)', 'Expenditure (Rs.)', 'Net Surplus / (Deficit) (Rs.)'],
       ...Object.entries(pnl.monthlyBreakdown).map(([month, data]) => [
         month,
         fmt(data.income),
@@ -765,55 +744,66 @@ export const exportPnLExcel = (pnl, timeframeType, selectedFY, selectedMonth, se
       ]),
     ];
     const ws2 = XLSX.utils.aoa_to_sheet(monthlyData);
-    ws2['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 24 }];
+    ws2['!cols'] = [{ wch: 18 }, { wch: 20 }, { wch: 22 }, { wch: 28 }];
     XLSX.utils.book_append_sheet(wb, ws2, 'Monthly Trend');
   }
 
-  const filename = `PnL_Report_${timeframeType}_${pnl.periodString.replace(/\s/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`;
+  const filename = `PnL_Report_${pnl.periodString.replace(/\s/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`;
   XLSX.writeFile(wb, filename);
 };
 
 export const exportPnLPDF = async (pnl) => {
-  const fmt = (n) => `₹ ${Math.round(n).toLocaleString('en-IN')}`;
+  // Uses clean 'Rs.' prefix so jsPDF standard fonts render crisp currency without broken Unicode glyphs
+  const fmt = (n) => `Rs. ${Math.round(n || 0).toLocaleString('en-IN')}`;
 
   const incomeRows = [
     ['Interest on Loans (Folio 153)', fmt(pnl.income.loanInterest)],
-    ['Admission Fees', fmt(pnl.income.admissionFees)],
-    ['Bank / FD Interest', fmt(pnl.income.bankInterest)],
-    ['Penal Charges', fmt(pnl.income.penalCharges)],
+    ['Admission & Membership Fees', fmt(pnl.income.admissionFees)],
+    ['Bank & FD Interest Receipts', fmt(pnl.income.bankInterest)],
+    ['Penal Charges & Late Fees', fmt(pnl.income.penalCharges)],
     ['Miscellaneous Income', fmt(pnl.income.miscIncome)],
-    [{ content: 'TOTAL INCOME', styles: { fontStyle: 'bold' } }, { content: fmt(pnl.totalIncome), styles: { fontStyle: 'bold', textColor: [16, 126, 62] } }],
+    [
+      { content: 'TOTAL INCOME (A)', styles: { fontStyle: 'bold', fillColor: [240, 253, 244] } },
+      { content: fmt(pnl.totalIncome), styles: { fontStyle: 'bold', textColor: [16, 126, 62], fillColor: [240, 253, 244] } }
+    ],
   ];
 
   const expenseRows = [
-    ['Interest on RD / Savings (Folio 154)', fmt(pnl.expense.savingsInterest)],
-    ['Bank / UPI Charges', fmt(pnl.expense.bankCharges)],
-    ['Audit & Legal Fees', fmt(pnl.expense.auditFees)],
-    ['Office & Stationery', fmt(pnl.expense.officeExpense)],
-    ['IT / Software Maintenance', fmt(pnl.expense.itExpense)],
-    ['Honorarium / Salaries', fmt(pnl.expense.honorarium)],
-    ['Bad Debt Provision (5% of new loans)', fmt(pnl.expense.badDebtProvision)],
-    [{ content: 'TOTAL EXPENDITURE', styles: { fontStyle: 'bold' } }, { content: fmt(pnl.totalExpense), styles: { fontStyle: 'bold', textColor: [187, 0, 0] } }],
+    ['Interest on RD & Member Savings (Folio 154)', fmt(pnl.expense.savingsInterest)],
+    ['Bank, UPI & Gateway Charges', fmt(pnl.expense.bankCharges)],
+    ['Audit & Legal Professional Fees', fmt(pnl.expense.auditFees)],
+    ['Office, Printing & Stationery', fmt(pnl.expense.officeExpense)],
+    ['IT, Cloud & Software Maintenance', fmt(pnl.expense.itExpense)],
+    ['Staff Honorarium & Allowances', fmt(pnl.expense.honorarium)],
+    ['Bad Debt Provision (5% of Disbursals)', fmt(pnl.expense.badDebtProvision)],
+    [
+      { content: 'TOTAL EXPENDITURE (B)', styles: { fontStyle: 'bold', fillColor: [254, 242, 242] } },
+      { content: fmt(pnl.totalExpense), styles: { fontStyle: 'bold', textColor: [185, 28, 28], fillColor: [254, 242, 242] } }
+    ],
   ];
 
   const surplusRows = [
-    [{ content: 'GROSS SURPLUS / (DEFICIT)', styles: { fontStyle: 'bold', fillColor: [240, 247, 255] } }, { content: fmt(pnl.grossSurplus), styles: { fontStyle: 'bold', fillColor: [240, 247, 255] } }],
-    ['', ''],
-    [{ content: 'APPROPRIATIONS', styles: { fontStyle: 'bold', fillColor: [245, 250, 244] } }, ''],
+    [
+      { content: 'GROSS SURPLUS / (DEFICIT) (A - B)', styles: { fontStyle: 'bold', fillColor: [239, 246, 255] } },
+      { content: fmt(pnl.grossSurplus), styles: { fontStyle: 'bold', textColor: pnl.grossSurplus >= 0 ? [10, 110, 209] : [185, 28, 28], fillColor: [239, 246, 255] } }
+    ],
     ['25% – Statutory Reserve Fund', fmt(pnl.appropriations.statutoryReserve)],
     ['10% – Dividend Equalization Fund', fmt(pnl.appropriations.dividendEqualization)],
-    ['5% – Common Good Fund', fmt(pnl.appropriations.commonGoodFund)],
-    [{ content: 'DISTRIBUTABLE SURPLUS', styles: { fontStyle: 'bold' } }, { content: fmt(pnl.appropriations.distributableSurplus), styles: { fontStyle: 'bold', textColor: [10, 110, 209] } }],
+    ['5% – Common Good / Welfare Fund', fmt(pnl.appropriations.commonGoodFund)],
+    [
+      { content: 'NET DISTRIBUTABLE SURPLUS', styles: { fontStyle: 'bold', fillColor: [240, 253, 244] } },
+      { content: fmt(pnl.appropriations.distributableSurplus), styles: { fontStyle: 'bold', textColor: [16, 126, 62], fillColor: [240, 253, 244] } }
+    ],
   ];
 
   await generatePDF({
-    title: 'Profit & Loss Account',
-    subtitle: `Period: ${pnl.periodString}`,
+    title: 'Profit & Loss Account (P&L)',
+    subtitle: `Period: ${pnl.periodString} | Co-operative Societies Format`,
     filename: `PnL_Report_${pnl.periodString.replace(/\s/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`,
     sections: [
-      { heading: 'INCOME', columns: ['Head of Account', 'Amount (₹)'], data: incomeRows },
-      { heading: 'EXPENDITURE', columns: ['Head of Account', 'Amount (₹)'], data: expenseRows },
-      { heading: 'SURPLUS & APPROPRIATIONS', columns: ['Item', 'Amount (₹)'], data: surplusRows },
+      { heading: '1. INCOME (CREDIT)', columns: ['Head of Account', 'Amount (Rs.)'], data: incomeRows },
+      { heading: '2. EXPENDITURE (DEBIT)', columns: ['Head of Account', 'Amount (Rs.)'], data: expenseRows },
+      { heading: '3. SURPLUS & STATUTORY APPROPRIATIONS', columns: ['Item Description', 'Amount (Rs.)'], data: surplusRows },
     ],
   });
 };

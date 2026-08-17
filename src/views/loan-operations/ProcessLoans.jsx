@@ -82,35 +82,38 @@ const ProcessLoans = () => {
   const [interestRate, setInterestRate] = useState('10') // Standard Society Rate
   const [tenureMonths, setTenureMonths] = useState('')
 
-  // Mock Data (Replace this with a fetch() to your backend later)
+  // Live Data Fetching from MongoDB
+  const fetchPendingLoans = async () => {
+    try {
+      const response = await fetch(`${apiBase}/api/loans`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error("Failed to fetch loans");
+      const data = await response.json();
+      const pending = Array.isArray(data)
+        ? data.filter(l => l.status === 'PENDING').map(l => ({
+            applicationId: l.loanId || l._id,
+            vendorNo: l.memberId?.vendorNo || l.vendorNo || 'N/A',
+            memberName: l.memberId?.name || l.memberName || 'Unknown',
+            requestedAmount: l.loanAmount || l.requestedAmount || 0,
+            purpose: l.purpose || 'General Requirement',
+            requestedTenure: l.tenure || l.requestedTenure || 12,
+            dateApplied: l.createdAt ? new Date(l.createdAt).toISOString().split('T')[0] : 'N/A',
+            status: 'PENDING',
+            currentShareBalance: l.memberId?.currentShareMoneyTotal || 0,
+            currentSavingsBalance: l.memberId?.rdBalance || 0
+          }))
+        : [];
+      setPendingApplications(pending);
+    } catch (err) {
+      console.error("Error fetching live pending loans:", err);
+      setPendingApplications([]);
+    }
+  };
+
   useEffect(() => {
-    setPendingApplications([
-      {
-        applicationId: 'APP-2026-891',
-        vendorNo: '1045',
-        memberName: 'Amit Kumar',
-        requestedAmount: 100000,
-        purpose: 'Home Renovation',
-        requestedTenure: 24,
-        dateApplied: '2026-07-25',
-        status: 'PENDING',
-        currentShareBalance: 25000,
-        currentSavingsBalance: 12500
-      },
-      {
-        applicationId: 'APP-2026-892',
-        vendorNo: '2088',
-        memberName: 'Sunita Sharma',
-        requestedAmount: 50000,
-        purpose: 'Medical Emergency',
-        requestedTenure: 12,
-        dateApplied: '2026-07-27',
-        status: 'PENDING',
-        currentShareBalance: 15000,
-        currentSavingsBalance: 8000
-      }
-    ])
-  }, [])
+    fetchPendingLoans();
+  }, []);
 
   const openReviewModal = (app) => {
     setSelectedApp(app)

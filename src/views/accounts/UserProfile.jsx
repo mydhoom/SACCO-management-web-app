@@ -32,6 +32,8 @@ const CARD_TYPE_LABELS = {
   VOTER_ID: '🗳️ Voter ID',
   DRIVING_LICENCE: '🚗 Driving Licence',
   HPSEBL_DEPT: '🏢 HPSEBL Departmental ID',
+  IDENTITY_DOC: '📄 Identity Document',
+  OTHER: '📄 Identity Document',
   UNKNOWN: '📄 Identity Document',
 }
 
