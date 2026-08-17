@@ -41,10 +41,11 @@ app.use(helmet());
 app.use(cors()); 
 // Morgan logs incoming requests to your terminal for debugging
 app.use(morgan("dev")); 
-// BodyParser allows Express to read JSON data from the frontend
-app.use(bodyParser.json()); 
+// BodyParser allows Express to read JSON data from the frontend (50MB limit for ID Card OCR images)
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 // Rate limiter protects your entire API from spam/brute-force attacks
-app.use("/api", apiLimiter); 
+app.use("/api", apiLimiter);
 
 // ==========================================
 // 2. CORE APPLICATION ROUTES

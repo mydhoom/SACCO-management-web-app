@@ -471,39 +471,77 @@ Return ONLY a valid JSON object matching this schema:
 
     let reply = '';
 
-    // 1. Try Gemini Vision (Gemini 2.0 / 1.5 Flash)
+    // 1. Try Gemini Vision models (gemini-1.5-flash, gemini-2.5-flash, gemini-2.0-flash)
     if (process.env.GEMINI_API_KEY) {
+      const { GoogleGenAI } = require('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+      const geminiModels = ['gemini-1.5-flash', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+
+      for (const m of geminiModels) {
+        if (reply) break;
+        try {
+          const response = await ai.models.generateContent({
+            model: m,
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  { text: prompt },
+                  {
+                    inlineData: {
+                      mimeType: mimeType,
+                      data: cleanBase64
+                    }
+                  }
+                ]
+              }
+            ],
+            config: {
+              responseMimeType: "application/json"
+            }
+          });
+          reply = response.text || '';
+          if (reply) {
+            console.log(`AI OCR: Gemini Vision (${m}) successfully parsed ID card`);
+            break;
+          }
+        } catch (geminiErr) {
+          console.warn(`Gemini vision (${m}) error:`, geminiErr.message);
+        }
+      }
+    }
+
+    // 2. Try Groq Vision (llama-3.2-11b-vision-preview) if available
+    if (!reply && process.env.GROQ_API_KEY) {
       try {
-        const { GoogleGenAI } = require('@google/genai');
-        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.0-flash',
-          contents: [
+        const Groq = require('groq-sdk');
+        const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+        const completion = await groq.chat.completions.create({
+          model: "llama-3.2-11b-vision-preview",
+          messages: [
             {
-              role: 'user',
-              parts: [
-                { text: prompt },
+              role: "user",
+              content: [
+                { type: "text", text: prompt },
                 {
-                  inlineData: {
-                    mimeType: mimeType,
-                    data: cleanBase64
+                  type: "image_url",
+                  image_url: {
+                    url: `data:${mimeType};base64,${cleanBase64}`
                   }
                 }
               ]
             }
           ],
-          config: {
-            responseMimeType: "application/json"
-          }
+          response_format: { type: "json_object" }
         });
-        reply = response.text || '';
-        console.log('AI OCR: Gemini Vision successfully parsed ID card');
-      } catch (geminiErr) {
-        console.warn('Gemini vision error:', geminiErr.message);
+        reply = completion.choices[0]?.message?.content || '';
+        if (reply) console.log('AI OCR: Groq Vision successfully parsed ID card');
+      } catch (groqErr) {
+        console.warn('Groq vision error:', groqErr.message);
       }
     }
 
-    // 2. Try OpenAI Vision (gpt-4o-mini) as fallback if Gemini fails
+    // 3. Try OpenAI Vision (gpt-4o-mini) as fallback
     if (!reply && process.env.OPENAI_API_KEY) {
       try {
         const OpenAI = require('openai');
@@ -527,7 +565,7 @@ Return ONLY a valid JSON object matching this schema:
           response_format: { type: "json_object" }
         });
         reply = completion.choices[0]?.message?.content || '';
-        console.log('AI OCR: OpenAI Vision successfully parsed ID card');
+        if (reply) console.log('AI OCR: OpenAI Vision successfully parsed ID card');
       } catch (openAiErr) {
         console.warn('OpenAI vision error:', openAiErr.message);
       }

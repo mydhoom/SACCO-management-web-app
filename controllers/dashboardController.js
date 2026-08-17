@@ -22,11 +22,11 @@ exports.getDashboardKPIs = async (req, res) => {
       monthlyCollections,
     ] = await Promise.all([
 
-      // 1a. Member counts
+      // 1a. Member counts (case-insensitive)
       User.aggregate([
         {
           $group: {
-            _id: '$status',
+            _id: { $toLower: { $ifNull: ['$status', 'approved'] } },
             count: { $sum: 1 }
           }
         }
@@ -110,8 +110,10 @@ exports.getDashboardKPIs = async (req, res) => {
 
     // --- Process member stats ---
     const membersMap = {};
-    memberStats.forEach(s => { membersMap[s._id] = s.count; });
-    const totalMembers = (membersMap['approved'] || 0) + (membersMap['pending'] || 0) + (membersMap['rejected'] || 0);
+    memberStats.forEach(s => { if (s._id) membersMap[String(s._id).toLowerCase()] = s.count; });
+    const approvedMembers = (membersMap['approved'] || 0) + (membersMap['active'] || 0);
+    const pendingMembers = membersMap['pending'] || 0;
+    const totalMembers = approvedMembers + pendingMembers + (membersMap['rejected'] || 0);
 
     // --- Process share capital ---
     const shareCapital = shareCapitalAgg[0]?.totalShareCapital || 0;
@@ -150,8 +152,8 @@ exports.getDashboardKPIs = async (req, res) => {
         // Member stats
         members: {
           total: totalMembers,
-          approved: membersMap['approved'] || 0,
-          pending: membersMap['pending'] || 0,
+          approved: approvedMembers,
+          pending: pendingMembers,
           pendingLoans: pendingLoansCount,
         },
         // Society financial KPIs
