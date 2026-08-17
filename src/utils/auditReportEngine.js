@@ -546,3 +546,275 @@ export const exportTrialBalancePDF = async (reportData, timeframeType, selectedF
     orientation: 'landscape' // Switched back to landscape to fit 6 columns nicely
   });
 };
+
+
+// ==========================================
+// PROFIT & LOSS (P&L) REPORT
+// Co-operative Compliant with Statutory Appropriations
+// ==========================================
+
+/**
+ * generatePnLReport - Builds a full Profit & Loss account from transaction data.
+ *
+ * INCOME (Credit side):
+ *   - Folio 153 (Interest on Loans)
+ *   - Folio 153 with category ADMISSION (Admission Fees)
+ *   - Folio 101 Bank Interest Receipts (tagged as "BANK_INTEREST" or "INTEREST_INCOME")
+ *   - Penal Charges (tagged "PENAL")
+ *   - Misc Income
+ *
+ * EXPENDITURE (Debit side):
+ *   - Folio 154 Credit (Interest on RD / Savings to members)
+ *   - Bank Charges (tagged "BANK_CHARGE")
+ *   - Audit / Legal Fees (tagged "AUDIT")
+ *   - Office / Stationery (tagged "OFFICE" / "STATIONERY")
+ *   - IT / Software (tagged "IT")
+ *   - Honorarium (tagged "HONORARIUM")
+ *   - Bad Debt Provision (5% of new loans)
+ *
+ * APPROPRIATIONS (Indian Co-operative Act):
+ *   - 25% Statutory Reserve Fund
+ *   - 10% Dividend Equalization Fund
+ *   - 5% Common Good Fund
+ *   - Distributable Surplus (remainder)
+ */
+export const generatePnLReport = (transactions, timeframeType, selectedMonth, selectedYear, selectedFY) => {
+  let startDate, endDate;
+  if (timeframeType === 'MONTHLY') {
+    startDate = new Date(selectedYear, selectedMonth - 1, 1);
+    endDate = new Date(selectedYear, selectedMonth, 0, 23, 59, 59);
+  } else {
+    const [startYr, endYr] = selectedFY.split('-');
+    startDate = new Date(`${startYr}-04-01T00:00:00`);
+    endDate = new Date(`${endYr}-03-31T23:59:59`);
+  }
+
+  // Income line items
+  const income = {
+    loanInterest: 0,
+    admissionFees: 0,
+    bankInterest: 0,
+    penalCharges: 0,
+    miscIncome: 0,
+  };
+
+  // Expenditure line items
+  const expense = {
+    savingsInterest: 0,
+    bankCharges: 0,
+    auditFees: 0,
+    officeExpense: 0,
+    itExpense: 0,
+    honorarium: 0,
+    badDebtProvision: 0,
+  };
+
+  let totalNewLoans = 0;
+
+  // Monthly breakdown map (for monthly-wise trend in P&L)
+  const monthlyBreakdown = {};
+
+  transactions.forEach(tx => {
+    const txDate = new Date(tx.transactionDate || tx.createdAt);
+    if (txDate < startDate || txDate > endDate) return;
+    const monthKey = txDate.toLocaleString('default', { month: 'short', year: 'numeric' });
+
+    if (!monthlyBreakdown[monthKey]) {
+      monthlyBreakdown[monthKey] = { income: 0, expense: 0, surplus: 0 };
+    }
+
+    const cat = (tx.category || tx.description || '').toUpperCase();
+
+    // ---- INCOME ----
+    if (tx.ledgerFolio === '153' && tx.entryType === 'CREDIT') {
+      if (cat.includes('ADMISSION') || cat.includes('FEE')) {
+        income.admissionFees += tx.amount;
+      } else {
+        income.loanInterest += tx.amount;
+      }
+      monthlyBreakdown[monthKey].income += tx.amount;
+    }
+    if ((cat.includes('BANK_INTEREST') || cat.includes('INTEREST_INCOME')) && tx.entryType === 'CREDIT') {
+      income.bankInterest += tx.amount;
+      monthlyBreakdown[monthKey].income += tx.amount;
+    }
+    if (cat.includes('PENAL') && tx.entryType === 'CREDIT') {
+      income.penalCharges += tx.amount;
+      monthlyBreakdown[monthKey].income += tx.amount;
+    }
+    if (cat.includes('MISC') && tx.entryType === 'CREDIT') {
+      income.miscIncome += tx.amount;
+      monthlyBreakdown[monthKey].income += tx.amount;
+    }
+
+    // New loan disbursement tracking (for bad debt provision)
+    if (tx.ledgerFolio === '152' && tx.entryType === 'DEBIT') {
+      totalNewLoans += tx.amount;
+    }
+
+    // ---- EXPENDITURE ----
+    if (tx.ledgerFolio === '154' && tx.entryType === 'CREDIT') {
+      expense.savingsInterest += tx.amount;
+      monthlyBreakdown[monthKey].expense += tx.amount;
+    }
+    if (cat.includes('BANK_CHARGE') || cat.includes('BANK CHARGE')) {
+      expense.bankCharges += tx.amount;
+      monthlyBreakdown[monthKey].expense += tx.amount;
+    }
+    if (cat.includes('AUDIT') || cat.includes('LEGAL')) {
+      expense.auditFees += tx.amount;
+      monthlyBreakdown[monthKey].expense += tx.amount;
+    }
+    if (cat.includes('OFFICE') || cat.includes('STATIONERY')) {
+      expense.officeExpense += tx.amount;
+      monthlyBreakdown[monthKey].expense += tx.amount;
+    }
+    if (cat.includes('IT') || cat.includes('SOFTWARE')) {
+      expense.itExpense += tx.amount;
+      monthlyBreakdown[monthKey].expense += tx.amount;
+    }
+    if (cat.includes('HONORARIUM') || cat.includes('SALARY')) {
+      expense.honorarium += tx.amount;
+      monthlyBreakdown[monthKey].expense += tx.amount;
+    }
+  });
+
+  // Bad debt provision = 5% of new loans disbursed in period
+  expense.badDebtProvision = Math.round(totalNewLoans * 0.05);
+
+  const totalIncome = Object.values(income).reduce((a, b) => a + b, 0);
+  const totalExpense = Object.values(expense).reduce((a, b) => a + b, 0);
+  const grossSurplus = totalIncome - totalExpense;
+
+  // Statutory Appropriations (Indian Co-operative Act)
+  const appropriations = {
+    statutoryReserve: grossSurplus > 0 ? Math.round(grossSurplus * 0.25) : 0,
+    dividendEqualization: grossSurplus > 0 ? Math.round(grossSurplus * 0.10) : 0,
+    commonGoodFund: grossSurplus > 0 ? Math.round(grossSurplus * 0.05) : 0,
+  };
+  appropriations.distributableSurplus = grossSurplus > 0
+    ? grossSurplus - appropriations.statutoryReserve - appropriations.dividendEqualization - appropriations.commonGoodFund
+    : grossSurplus;
+
+  // Build monthly surplus
+  Object.keys(monthlyBreakdown).forEach(key => {
+    monthlyBreakdown[key].surplus = monthlyBreakdown[key].income - monthlyBreakdown[key].expense;
+  });
+
+  const periodString = timeframeType === 'MONTHLY'
+    ? new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'long', year: 'numeric' })
+    : `FY ${selectedFY}`;
+
+  return {
+    income, expense, appropriations, grossSurplus,
+    totalIncome, totalExpense, monthlyBreakdown, periodString,
+    timeframeType, startDate, endDate,
+  };
+};
+
+export const exportPnLExcel = (pnl, timeframeType, selectedFY, selectedMonth, selectedYear) => {
+  const wb = XLSX.utils.book_new();
+  const fmt = (n) => Math.round(n);
+
+  // ---- Sheet 1: P&L Summary ----
+  const summaryData = [
+    ['MAHADEV SOCIETY – HPSEBL EMPLOYEES CO-OPERATIVE'],
+    ['PROFIT & LOSS ACCOUNT'],
+    [`Period: ${pnl.periodString}`],
+    [],
+    ['INCOME', '', 'AMOUNT (₹)'],
+    ['Interest on Loans', '', fmt(pnl.income.loanInterest)],
+    ['Admission Fees', '', fmt(pnl.income.admissionFees)],
+    ['Bank / FD Interest', '', fmt(pnl.income.bankInterest)],
+    ['Penal Charges', '', fmt(pnl.income.penalCharges)],
+    ['Miscellaneous Income', '', fmt(pnl.income.miscIncome)],
+    ['TOTAL INCOME', '', fmt(pnl.totalIncome)],
+    [],
+    ['EXPENDITURE', '', 'AMOUNT (₹)'],
+    ['Interest on RD / Savings (Members)', '', fmt(pnl.expense.savingsInterest)],
+    ['Bank / UPI Charges', '', fmt(pnl.expense.bankCharges)],
+    ['Audit & Legal Fees', '', fmt(pnl.expense.auditFees)],
+    ['Office & Stationery', '', fmt(pnl.expense.officeExpense)],
+    ['IT / Software Maintenance', '', fmt(pnl.expense.itExpense)],
+    ['Honorarium / Salaries', '', fmt(pnl.expense.honorarium)],
+    ['Bad Debt Provision (5% of new loans)', '', fmt(pnl.expense.badDebtProvision)],
+    ['TOTAL EXPENDITURE', '', fmt(pnl.totalExpense)],
+    [],
+    ['GROSS SURPLUS / (DEFICIT)', '', fmt(pnl.grossSurplus)],
+    [],
+    ['STATUTORY APPROPRIATIONS'],
+    ['25% – Statutory Reserve Fund', '', fmt(pnl.appropriations.statutoryReserve)],
+    ['10% – Dividend Equalization Fund', '', fmt(pnl.appropriations.dividendEqualization)],
+    ['5% – Common Good Fund', '', fmt(pnl.appropriations.commonGoodFund)],
+    ['DISTRIBUTABLE SURPLUS', '', fmt(pnl.appropriations.distributableSurplus)],
+  ];
+
+  const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
+  ws1['!cols'] = [{ wch: 40 }, { wch: 10 }, { wch: 18 }];
+  XLSX.utils.book_append_sheet(wb, ws1, 'P&L Summary');
+
+  // ---- Sheet 2: Monthly Trend ----
+  if (timeframeType === 'YEARLY' && Object.keys(pnl.monthlyBreakdown).length > 0) {
+    const monthlyData = [
+      ['Month', 'Income (₹)', 'Expenditure (₹)', 'Surplus / (Deficit) (₹)'],
+      ...Object.entries(pnl.monthlyBreakdown).map(([month, data]) => [
+        month,
+        fmt(data.income),
+        fmt(data.expense),
+        fmt(data.surplus),
+      ]),
+    ];
+    const ws2 = XLSX.utils.aoa_to_sheet(monthlyData);
+    ws2['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 24 }];
+    XLSX.utils.book_append_sheet(wb, ws2, 'Monthly Trend');
+  }
+
+  const filename = `PnL_Report_${timeframeType}_${pnl.periodString.replace(/\s/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`;
+  XLSX.writeFile(wb, filename);
+};
+
+export const exportPnLPDF = async (pnl) => {
+  const fmt = (n) => `₹ ${Math.round(n).toLocaleString('en-IN')}`;
+
+  const incomeRows = [
+    ['Interest on Loans (Folio 153)', fmt(pnl.income.loanInterest)],
+    ['Admission Fees', fmt(pnl.income.admissionFees)],
+    ['Bank / FD Interest', fmt(pnl.income.bankInterest)],
+    ['Penal Charges', fmt(pnl.income.penalCharges)],
+    ['Miscellaneous Income', fmt(pnl.income.miscIncome)],
+    [{ content: 'TOTAL INCOME', styles: { fontStyle: 'bold' } }, { content: fmt(pnl.totalIncome), styles: { fontStyle: 'bold', textColor: [16, 126, 62] } }],
+  ];
+
+  const expenseRows = [
+    ['Interest on RD / Savings (Folio 154)', fmt(pnl.expense.savingsInterest)],
+    ['Bank / UPI Charges', fmt(pnl.expense.bankCharges)],
+    ['Audit & Legal Fees', fmt(pnl.expense.auditFees)],
+    ['Office & Stationery', fmt(pnl.expense.officeExpense)],
+    ['IT / Software Maintenance', fmt(pnl.expense.itExpense)],
+    ['Honorarium / Salaries', fmt(pnl.expense.honorarium)],
+    ['Bad Debt Provision (5% of new loans)', fmt(pnl.expense.badDebtProvision)],
+    [{ content: 'TOTAL EXPENDITURE', styles: { fontStyle: 'bold' } }, { content: fmt(pnl.totalExpense), styles: { fontStyle: 'bold', textColor: [187, 0, 0] } }],
+  ];
+
+  const surplusRows = [
+    [{ content: 'GROSS SURPLUS / (DEFICIT)', styles: { fontStyle: 'bold', fillColor: [240, 247, 255] } }, { content: fmt(pnl.grossSurplus), styles: { fontStyle: 'bold', fillColor: [240, 247, 255] } }],
+    ['', ''],
+    [{ content: 'APPROPRIATIONS', styles: { fontStyle: 'bold', fillColor: [245, 250, 244] } }, ''],
+    ['25% – Statutory Reserve Fund', fmt(pnl.appropriations.statutoryReserve)],
+    ['10% – Dividend Equalization Fund', fmt(pnl.appropriations.dividendEqualization)],
+    ['5% – Common Good Fund', fmt(pnl.appropriations.commonGoodFund)],
+    [{ content: 'DISTRIBUTABLE SURPLUS', styles: { fontStyle: 'bold' } }, { content: fmt(pnl.appropriations.distributableSurplus), styles: { fontStyle: 'bold', textColor: [10, 110, 209] } }],
+  ];
+
+  await generatePDF({
+    title: 'Profit & Loss Account',
+    subtitle: `Period: ${pnl.periodString}`,
+    filename: `PnL_Report_${pnl.periodString.replace(/\s/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`,
+    sections: [
+      { heading: 'INCOME', columns: ['Head of Account', 'Amount (₹)'], data: incomeRows },
+      { heading: 'EXPENDITURE', columns: ['Head of Account', 'Amount (₹)'], data: expenseRows },
+      { heading: 'SURPLUS & APPROPRIATIONS', columns: ['Item', 'Amount (₹)'], data: surplusRows },
+    ],
+  });
+};
+

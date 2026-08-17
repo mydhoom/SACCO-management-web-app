@@ -8,7 +8,8 @@ import { cilDescription, cilCloudDownload, cilPrint, cilFile } from '@coreui/ico
 import { 
   generateLoanReport, exportLoanExcel, exportLoanPDF,
   generateRDReport, exportRDExcel, exportRDPDF,
-  generateTrialBalance, exportTrialBalanceExcel, exportTrialBalancePDF
+  generateTrialBalance, exportTrialBalanceExcel, exportTrialBalancePDF,
+  generatePnLReport, exportPnLExcel, exportPnLPDF
 } from '../../utils/auditReportEngine'
 
 const ReportsGeneration = () => {
@@ -21,6 +22,12 @@ const ReportsGeneration = () => {
   const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString())
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString())
   const [selectedFY, setSelectedFY] = useState('2024-2025')
+
+  // Settings for P&L Report
+  const [pnlTimeframeType, setPnlTimeframeType] = useState('MONTHLY')
+  const [pnlSelectedMonth, setPnlSelectedMonth] = useState((new Date().getMonth() + 1).toString())
+  const [pnlSelectedYear, setPnlSelectedYear] = useState(new Date().getFullYear().toString())
+  const [pnlSelectedFY, setPnlSelectedFY] = useState('2024-2025')
 
   // Settings for Trial Balance Report
   const [tbTimeframeType, setTbTimeframeType] = useState('MONTHLY') 
@@ -411,6 +418,76 @@ const ReportsGeneration = () => {
               </CButton>
               <CButton color="danger" className="text-white fw-bold shadow-sm" onClick={handleDownloadTBPDF} disabled={loadingTx || isGenerating}>
                 <CIcon icon={cilFile} className="me-2"/> Download PDF
+              </CButton>
+            </div>
+          </CCardBody>
+        </CCard>
+
+        {/* 5. PROFIT & LOSS REPORT */}
+        <CCard className="shadow-sm border-top-success border-top-3 mb-4">
+          <CCardHeader className="bg-white py-3">
+            <h5 className="mb-0 fw-bold text-dark">5. 📊 Profit & Loss (P&L) Account</h5>
+            <div className="small text-muted">Monthly or FY Annual P&L with co-operative statutory appropriations (25% Reserve, 10% Dividend Fund, 5% Common Good Fund).</div>
+          </CCardHeader>
+          <CCardBody className="p-4">
+            <div className="d-flex flex-wrap gap-4 mb-4 p-3 bg-light rounded">
+              <div>
+                <strong className="d-block mb-2">Report Format:</strong>
+                <CFormCheck type="radio" name="pnltimeframe" id="pnlmonthly" label="Monthly P&L"
+                  checked={pnlTimeframeType === 'MONTHLY'} onChange={() => setPnlTimeframeType('MONTHLY')} />
+                <CFormCheck type="radio" name="pnltimeframe" id="pnlyearly" label="Annual FY P&L (with Monthly Trend)"
+                  checked={pnlTimeframeType === 'YEARLY'} onChange={() => setPnlTimeframeType('YEARLY')} />
+              </div>
+              {pnlTimeframeType === 'MONTHLY' ? (
+                <div className="d-flex gap-2 align-items-end">
+                  <div>
+                    <label className="form-label small fw-bold">Month</label>
+                    <CFormSelect value={pnlSelectedMonth} onChange={e => setPnlSelectedMonth(e.target.value)}>
+                      {Array.from({length: 12}, (_, i) => i + 1).map(m => (
+                        <option key={m} value={m}>{new Date(0, m - 1).toLocaleString('default', { month: 'long' })}</option>
+                      ))}
+                    </CFormSelect>
+                  </div>
+                  <div>
+                    <label className="form-label small fw-bold">Year</label>
+                    <CFormSelect value={pnlSelectedYear} onChange={e => setPnlSelectedYear(e.target.value)}>
+                      <option value="2024">2024</option>
+                      <option value="2025">2025</option>
+                      <option value="2026">2026</option>
+                    </CFormSelect>
+                  </div>
+                </div>
+              ) : (
+                <div className="d-flex gap-2 align-items-end">
+                  <div>
+                    <label className="form-label small fw-bold">Financial Year</label>
+                    <CFormSelect value={pnlSelectedFY} onChange={e => setPnlSelectedFY(e.target.value)}>
+                      <option value="2024-2025">FY 2024-2025</option>
+                      <option value="2025-2026">FY 2025-2026</option>
+                      <option value="2026-2027">FY 2026-2027</option>
+                    </CFormSelect>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="d-flex gap-3">
+              <CButton color="success" className="text-white fw-bold shadow-sm"
+                onClick={async () => {
+                  setIsGenerating(true)
+                  const pnl = generatePnLReport(transactions, pnlTimeframeType, pnlSelectedMonth, pnlSelectedYear, pnlSelectedFY)
+                  exportPnLExcel(pnl, pnlTimeframeType, pnlSelectedFY, pnlSelectedMonth, pnlSelectedYear)
+                  setIsGenerating(false)
+                }} disabled={loadingTx || isGenerating}>
+                {isGenerating ? <CSpinner size="sm" /> : <><CIcon icon={cilCloudDownload} className="me-2"/>Download P&L Excel</>}
+              </CButton>
+              <CButton color="danger" className="text-white fw-bold shadow-sm"
+                onClick={async () => {
+                  setIsGenerating(true)
+                  const pnl = generatePnLReport(transactions, pnlTimeframeType, pnlSelectedMonth, pnlSelectedYear, pnlSelectedFY)
+                  await exportPnLPDF(pnl)
+                  setIsGenerating(false)
+                }} disabled={loadingTx || isGenerating}>
+                <CIcon icon={cilFile} className="me-2"/>Download P&L PDF
               </CButton>
             </div>
           </CCardBody>

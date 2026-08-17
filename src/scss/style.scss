@@ -109,3 +109,85 @@ body {
     --cui-footer-bg: var(--cui-body-bg);
   }
 }
+
+// ==========================================
+// SIDEBAR ICON RAIL MODE (unfoldable/narrow)
+// ==========================================
+
+// When sidebar is in unfoldable/narrow rail mode
+.sidebar-narrow-unfoldable:not(:hover) {
+  .nav-title {
+    display: none !important;
+  }
+
+  .sidebar-nav .nav-link {
+    position: relative;
+
+    // Hide the text labels in rail mode
+    .nav-link-name,
+    span.nav-link-name {
+      display: none;
+    }
+
+    // Show tooltip label on icon hover
+    &:hover::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      left: calc(100% + 10px);
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(28, 37, 54, 0.97);
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      white-space: nowrap;
+      z-index: 9999;
+      pointer-events: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+  }
+}
+
+// Smooth rail transitions
+.sidebar {
+  transition: width 0.2s ease-in-out !important;
+  overflow: hidden;
+}
+
+// ==========================================
+// DYNAMIC COLOR THEME CSS VARIABLES
+// ==========================================
+:root {
+  --app-primary: #0a6ed1;
+  --app-primary-dark: #0854a0;
+  --app-primary-light: #e8f2fc;
+  --app-primary-gradient: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  --app-sidebar-bg: #1c2536;
+  --app-accent: #2563eb;
+  --app-header-gradient: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+}
+
+// Override primary button to use theme color
+.btn-primary {
+  background-color: var(--app-primary) !important;
+  border-color: var(--app-primary-dark) !important;
+  &:hover, &:focus {
+    background-color: var(--app-primary-dark) !important;
+  }
+}
+
+// Theme-aware text-primary
+.text-primary {
+  color: var(--app-primary) !important;
+}
+
+// Theme-aware header title gradient
+.header-title-gradient {
+  background: var(--app-header-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}

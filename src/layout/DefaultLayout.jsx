@@ -1,43 +1,27 @@
 /**
  * DefaultLayout Component
  *
- * Main application layout wrapper that composes the primary UI structure
- * for authenticated/protected routes.
- *
- * Layout structure:
- * - AppSidebar: Collapsible navigation sidebar
- * - AppHeader: Top navigation bar with user menu and theme switcher
- * - AppContent: Main content area with route rendering
- * - AppFooter: Footer with links and copyright
- *
- * This layout is used for all routes defined in routes.js, providing
- * a consistent structure across the application.
- *
- * @component
- * @example
- * // Used in App.js for protected routes
- * <Route path="*" element={<DefaultLayout />} />
+ * Main application layout wrapper with:
+ * - AppSidebar, AppHeader, AppContent, AppFooter
+ * - AiAssistant floating on every page
+ * - InactivityTimer for auto-logout on 5 min idle
+ * - Stored color theme applied on mount
  */
 
-import React from 'react'
-import { AppContent, AppSidebar, AppFooter } from "../components/index";
-import AppHeader from "../components/header/AppHeader";
-import AiAssistant from "../components/AiAssistant/AiAssistant";
+import React, { useEffect } from 'react'
+import { AppContent, AppSidebar, AppFooter } from '../components/index'
+import AppHeader from '../components/header/AppHeader'
+import AiAssistant from '../components/AiAssistant/AiAssistant'
+import InactivityTimer from '../components/InactivityTimer'
+import { applyColorTheme, getStoredTheme } from '../utils/themeManager'
 
-/**
- * DefaultLayout functional component
- *
- * Renders the main application layout with:
- * - Fixed sidebar navigation
- * - Sticky header
- * - Flexible content area
- * - Footer at bottom
- *
- * Uses flexbox for proper content stretching and footer positioning.
- *
- * @returns {React.ReactElement} Complete application layout
- */
 const DefaultLayout = () => {
+  // Apply saved color theme on every layout mount
+  useEffect(() => {
+    const stored = getStoredTheme()
+    applyColorTheme(stored.id)
+  }, [])
+
   return (
     <div>
       <AppSidebar />
@@ -50,6 +34,8 @@ const DefaultLayout = () => {
       </div>
       {/* AI Financial Assistant — floating on every page */}
       <AiAssistant />
+      {/* Auto-logout on 5 minutes of inactivity */}
+      <InactivityTimer />
     </div>
   )
 }
