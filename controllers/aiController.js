@@ -435,5 +435,133 @@ Please map the UPLOADED EXCEL HEADERS to the TARGET SCHEMA FIELDS.`;
   }
 };
 
+// ============================================================
+// 4. AI ID CARD SCANNER — Reads Indian ID Cards (Aadhaar, PAN, HPSEBL)
+// ============================================================
+module.exports.handleScanIdCard = async (req, res) => {
+  try {
+    const { imageBase64, mimeType = 'image/jpeg' } = req.body;
+    if (!imageBase64) {
+      return res.status(400).json({ error: "Missing imageBase64 data." });
+    }
+
+    // Clean base64 data prefix if present (e.g. data:image/png;base64,...)
+    const cleanBase64 = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+
+    const prompt = `You are an expert OCR and document data extractor for Indian Identity Cards and Departmental ID Cards (Aadhaar Card, PAN Card, HPSEBL Departmental Employee ID Card, Voter ID, Driving Licence).
+Carefully inspect the provided ID card image and extract all details with 100% precision.
+
+Return ONLY a valid JSON object matching this schema:
+{
+  "cardType": "AADHAAR" | "PAN" | "VOTER_ID" | "DRIVING_LICENCE" | "HPSEBL_DEPT" | "OTHER",
+  "name": "Cardholder full name in English (e.g. Kapil Thakur)",
+  "fatherName": "Father's or spouse's name if written, otherwise empty string",
+  "dob": "Date of birth in DD/MM/YYYY or YYYY format (e.g. 1980)",
+  "gender": "Male" | "Female" | "Other" | "",
+  "aadhaarNo": "12-digit Aadhaar Number with space formatting (e.g. 2494 2221 0651), or empty string if not Aadhaar",
+  "panNo": "10-character PAN number (e.g. ABCDE1234F) or empty string",
+  "voterIdNo": "Voter ID number or empty string",
+  "employeeNo": "Departmental / HPSEBL Employee or Vendor number or empty string",
+  "designation": "Job title / Designation (e.g. Foreman, Junior Engineer, Lineman) or empty string",
+  "circle": "Work circle or empty string",
+  "division": "Work division or empty string",
+  "address": "Address or empty string",
+  "bloodGroup": "Blood group if written or empty string"
+}`;
+
+    let reply = '';
+
+    // 1. Try Gemini Vision (Gemini 2.0 / 1.5 Flash)
+    if (process.env.GEMINI_API_KEY) {
+      try {
+        const { GoogleGenAI } = require('@google/genai');
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.0-flash',
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                { text: prompt },
+                {
+                  inlineData: {
+                    mimeType: mimeType,
+                    data: cleanBase64
+                  }
+                }
+              ]
+            }
+          ],
+          config: {
+            responseMimeType: "application/json"
+          }
+        });
+        reply = response.text || '';
+        console.log('AI OCR: Gemini Vision successfully parsed ID card');
+      } catch (geminiErr) {
+        console.warn('Gemini vision error:', geminiErr.message);
+      }
+    }
+
+    // 2. Try OpenAI Vision (gpt-4o-mini) as fallback if Gemini fails
+    if (!reply && process.env.OPENAI_API_KEY) {
+      try {
+        const OpenAI = require('openai');
+        const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: prompt },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: `data:${mimeType};base64,${cleanBase64}`
+                  }
+                }
+              ]
+            }
+          ],
+          response_format: { type: "json_object" }
+        });
+        reply = completion.choices[0]?.message?.content || '';
+        console.log('AI OCR: OpenAI Vision successfully parsed ID card');
+      } catch (openAiErr) {
+        console.warn('OpenAI vision error:', openAiErr.message);
+      }
+    }
+
+    if (!reply) {
+      throw new Error('All AI vision providers failed to parse the image.');
+    }
+
+    // Parse JSON
+    let extractedJson = reply;
+    let jsonMatch = reply.match(/```json([\s\S]*?)```/) || reply.match(/```([\s\S]*?)```/);
+    if (jsonMatch) {
+      extractedJson = jsonMatch[1].trim();
+    } else {
+      const firstBrace = reply.indexOf('{');
+      const lastBrace = reply.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        extractedJson = reply.substring(firstBrace, lastBrace + 1);
+      }
+    }
+
+    const parsedData = JSON.parse(extractedJson);
+    res.json({
+      success: true,
+      data: parsedData,
+      source: 'AI_VISION'
+    });
+
+  } catch (error) {
+    console.error('AI ID Card Scan Error:', error);
+    res.status(500).json({ error: `AI ID Scan failed: ${error.message}` });
+  }
+};
+
 module.exports.getAiContext = module.exports.getAiContext || getAiContext;
 module.exports.handleAiChat = module.exports.handleAiChat || handleAiChat;

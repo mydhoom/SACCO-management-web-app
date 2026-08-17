@@ -15,4 +15,7 @@ router.post('/chat', authenticate, handleAiChat);
 // POST /api/ai/map-excel — AI analyzes Excel headers and maps them to the system schema
 router.post('/map-excel', authenticate, require('../controllers/aiController').handleAiExcelMapping);
 
+// POST /api/ai/scan-id-card — AI Vision OCR extracts fields from Indian ID Cards
+router.post('/scan-id-card', authenticate, require('../controllers/aiController').handleScanIdCard);
+
 module.exports = router;
