@@ -192,10 +192,40 @@ const getProfile = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
+    const isAdmin = req.user.role === 'admin' || req.user.role === 'executive';
+    const updateData = { ...req.body };
+
+    // SECURITY: Strip masked Aadhaar values — never overwrite real data with display mask
+    if (updateData.aadhaarNo && updateData.aadhaarNo.includes('****')) {
+      delete updateData.aadhaarNo;
+    }
+    if (updateData.aadharNumber && updateData.aadharNumber.includes('****')) {
+      delete updateData.aadharNumber;
+    }
+
+    // SECURITY: Non-admins cannot modify locked fields
+    if (!isAdmin) {
+      delete updateData.vendorNo;
+      delete updateData.role;
+      delete updateData.status;
+      delete updateData.designation;
+      delete updateData.circle;
+      delete updateData.division;
+      delete updateData.subDivision;
+      delete updateData.joiningDate;
+      delete updateData.dateOfJoining;
+      delete updateData.retirementDate;
+      delete updateData.dateOfRetirement;
+      delete updateData.membershipId;
+      delete updateData.admissionDate;
+      delete updateData.sharesCount;
+      delete updateData.shareValue;
+      delete updateData.kycVerified;
+    }
 
     const updatedUser = await User.findByIdAndUpdate(
       userId,
-      { $set: req.body },
+      { $set: updateData },
       { new: true, runValidators: true }
     ).select("-password");
 
