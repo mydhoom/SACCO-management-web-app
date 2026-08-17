@@ -300,10 +300,10 @@ const AdminDashboard = () => {
                   <KpiCard color="primary" icon={cilGroup} title="Total Members" value={fmtNum(kpis.members?.approved)} subValue={`${kpis.members?.pending || 0} pending approval`} link="/admin/directory" />
                 </CCol>
                 <CCol xs={6} lg={3}>
-                  <KpiCard color="success" icon={cilChartPie} title="Total Share Capital" value={fmt(kpis.financials?.shareCapital)} subValue={`Dividends paid: ${fmt(kpis.financials?.totalDividends)}`} />
+                  <KpiCard color="success" icon={cilChartPie} title="Total Share Capital" value={fmt(kpis.financials?.shareCapital)} subValue={`Dividends paid: ${fmt(kpis.financials?.totalDividends)}`} link="/accounts/shares" />
                 </CCol>
                 <CCol xs={6} lg={3}>
-                  <KpiCard color="info" icon={cilMoney} title="RD Pool (Savings)" value={fmt(kpis.financials?.rdPool)} subValue={`Monthly collection: ${fmt(kpis.financials?.monthlyRDCollection)}`} />
+                  <KpiCard color="info" icon={cilMoney} title="RD Pool (Savings)" value={fmt(kpis.financials?.rdPool)} subValue={`Monthly collection: ${fmt(kpis.financials?.monthlyRDCollection)}`} link="/accounts/shares" />
                 </CCol>
                 <CCol xs={6} lg={3}>
                   <KpiCard color="danger" icon={cilCreditCard} title="Active Loan Portfolio" value={fmt(kpis.financials?.activeLoanPortfolio)} subValue={`${fmtNum(kpis.financials?.activeLoansCount)} active loans`} link="/accounts/loans" pulse={kpis.members?.pendingLoans > 0} />
