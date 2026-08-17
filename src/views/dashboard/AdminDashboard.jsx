@@ -313,7 +313,7 @@ const AdminDashboard = () => {
               {/* ── KPI Row 2: Health Indicators ── */}
               <CRow className="mb-4">
                 <CCol xs={6} lg={3}>
-                  <KpiCard color="warning" icon={cilWarning} title="Defaulters Detected" value={fmtNum(defaulters.length)} subValue="EMI overdue > 35 days" link={null} pulse={defaulters.length > 0} />
+                  <KpiCard color="warning" icon={cilWarning} title="Defaulters Detected" value={fmtNum(defaulters.length)} subValue="EMI overdue > 35 days" link="/loan-operations/defaulters" pulse={defaulters.length > 0} />
                 </CCol>
                 <CCol xs={6} lg={3}>
                   <KpiCard color="success" icon={cilBriefcase} title="Estimated Liquid Fund" value={fmt(kpis.financials?.liquidFund)} subValue="Share Capital + RD − Loans" />
