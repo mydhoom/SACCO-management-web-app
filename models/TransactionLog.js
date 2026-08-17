@@ -167,34 +167,53 @@ transactionLogSchema.pre('validate', function (next) {
     }
   }
 
-  // Only generate a new ID if this is a brand new transaction being created
-  if (this.isNew) {
-    // 1. Determine the Prefix based on the Category
-    let typePrefix = 'GEN'; // General fallback
-    const cat = this.category || '';
-    
-    if (cat.includes('LOAN')) typePrefix = 'LN';
-    else if (cat.includes('RECURRING')) typePrefix = 'RD';
-    else if (cat.includes('THRIFT')) typePrefix = 'MT';
-    else if (cat.includes('SHARE')) typePrefix = 'SH';
-    else if (cat.includes('DIVIDEND')) typePrefix = 'DIV';
-    else if (cat.includes('FEE') || cat.includes('FUND')) typePrefix = 'FEE';
+  // Generate readable transactionId if new or if legacy format (e.g. TRX-...)
+  if (this.isNew || !this.transactionId || this.transactionId.startsWith('TRX-')) {
+    // 1. Vendor / System Prefix
+    let vendorPrefix = 'SYS';
+    const rawVendor = (this.vendorNo || '').trim().toUpperCase();
 
-    // 2. Get the Vendor Number (Fallback to 'SYS' if it's a system transfer)
-    const vendor = this.vendorNo ? this.vendorNo.replace(/[^A-Za-z0-9]/g, '').toUpperCase() : 'SYS';
+    if (rawVendor && !rawVendor.startsWith('SYS') && rawVendor !== 'SYSTEM_ENTRY' && rawVendor !== 'SYSTEM') {
+      vendorPrefix = rawVendor.replace(/[^A-Z0-9]/g, '');
+    } else if (this.category === 'BANK_RECEIPT' || this.category === 'BANK_PAYOUT' || this.ledgerFolio === '101') {
+      vendorPrefix = 'SYS-BANK';
+    } else if (this.category === 'INTEREST_INCOME' || this.ledgerFolio === '153') {
+      vendorPrefix = 'SYS-INT';
+    } else if (this.category === 'REVERSAL') {
+      vendorPrefix = 'SYS-REV';
+    } else {
+      vendorPrefix = 'SYS';
+    }
 
-    // 3. Format the Date as YYYYMMDD
-    const dateObj = this.transactionDate || new Date();
-    const yyyy = dateObj.getFullYear();
-    const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+    // 2. Category / Module Prefix
+    let catCode = 'GEN';
+    const cat = (this.category || '').toUpperCase();
+
+    if (cat.includes('LOAN')) catCode = 'LN';
+    else if (cat.includes('RECURRING') || cat.includes('RD')) catCode = 'RD';
+    else if (cat.includes('THRIFT')) catCode = 'MT';
+    else if (cat.includes('SHARE')) catCode = 'SH';
+    else if (cat.includes('INTEREST')) catCode = 'INT';
+    else if (cat.includes('DIVIDEND')) catCode = 'DIV';
+    else if (cat.includes('BANK')) catCode = 'BANK';
+    else if (cat.includes('PENALTY') || cat.includes('FEE') || cat.includes('FUND')) catCode = 'FEE';
+    else if (cat === 'REVERSAL') catCode = 'REV';
+
+    // 3. Date in DDMMYYYY format
+    const dateObj = this.transactionDate || this.createdAt || new Date();
     const dd = String(dateObj.getDate()).padStart(2, '0');
-    const dateStr = `${yyyy}${mm}${dd}`;
+    const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const yyyy = dateObj.getFullYear();
+    const dateStr = `${dd}${mm}${yyyy}`;
 
-    // 4. Generate a short 4-character random string to guarantee uniqueness
-    const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+    // 4. Entry Type (CR / DR)
+    const typeCode = this.entryType === 'DEBIT' ? 'DR' : 'CR';
 
-    // 5. Combine them together into the final readable ID
-    this.transactionId = `${typePrefix}-${vendor}-${dateStr}-${randomSuffix}`;
+    // 5. Short 2-character hex salt to guarantee database uniqueness
+    const salt = Math.floor(Math.random() * 256).toString(16).toUpperCase().padStart(2, '0');
+
+    // Format: 12345-LN-12082026-CR-A1 or SYS-BANK-12082026-DR-F9
+    this.transactionId = `${vendorPrefix}-${catCode}-${dateStr}-${typeCode}-${salt}`;
   }
   
   next();

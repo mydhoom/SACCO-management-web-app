@@ -12,6 +12,7 @@ const {
   updateProfile,
   getProfile,           // <--- ADDED
   purgeDatabase,            // Added Purge Function
+  getMemberPurgeStats,      // Added Member Purge Stats
   systemInitialization      // Added Excel Initialization Function
 } = require("../controllers/authController");
 
@@ -43,6 +44,7 @@ router.put("/profile/update", authenticate, updateProfile);
 router.get("/profile", authenticate, getProfile);
 
 // 1. Database Purge
+router.get("/member-purge-stats/:memberId", authenticate, authorize(["admin"]), getMemberPurgeStats);
 router.post("/purge", authenticate, authorize(["admin"]), purgeDatabase);
 
 // --- INITIALIZATION ROUTE ---

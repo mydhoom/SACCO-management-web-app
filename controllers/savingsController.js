@@ -50,14 +50,33 @@ exports.getSavings = async (req, res) => {
  */
 exports.getDivisionSummary = async (req, res) => {
   try {
-    const summary = await Savings.aggregate([
+    const summaryByFolio = await TransactionLog.aggregate([
+      {
+        $match: {
+          status: { $ne: 'REVERSED' },
+          category: { $ne: 'REVERSAL' }
+        }
+      },
       {
         $group: {
-          _id: null,
-          totalAmount: { $sum: "$amount" }
+          _id: "$ledgerFolio",
+          total: {
+            $sum: {
+              $cond: [{ $eq: ["$entryType", "CREDIT"] }, "$amount", { $multiply: ["$amount", -1] }]
+            }
+          }
         }
       }
     ]);
+
+    let shares = 0;
+    let mandatory = 0;
+    let voluntary = 0;
+
+    summaryByFolio.forEach(item => {
+      if (item._id === '155') shares = item.total;
+      if (item._id === '154') mandatory = item.total;
+    });
 
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
@@ -66,7 +85,10 @@ exports.getDivisionSummary = async (req, res) => {
     const monthlyCollection = await TransactionLog.aggregate([
       { 
         $match: { 
-          createdAt: { $gte: startOfMonth }
+          createdAt: { $gte: startOfMonth },
+          entryType: 'CREDIT',
+          status: { $ne: 'REVERSED' },
+          category: { $ne: 'REVERSAL' }
         } 
       },
       {
@@ -80,9 +102,9 @@ exports.getDivisionSummary = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        shares: summary[0]?.totalAmount || 0, 
-        mandatory: 0, 
-        voluntary: 0,
+        shares: Math.max(0, shares), 
+        mandatory: Math.max(0, mandatory), 
+        voluntary: Math.max(0, voluntary),
         thisMonthCollection: monthlyCollection[0]?.totalCollected || 0
       }
     });
@@ -126,12 +148,13 @@ exports.getRecentTransactions = async (req, res) => {
 
     const formattedTransactions = transactions.map(trx => ({
       id: trx._id,
+      transactionId: trx.transactionId,
       date: new Date(trx.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      vendorNo: trx.memberId?.vendorNo || 'N/A', 
-      name: trx.memberId ? `${trx.memberId.firstName} ${trx.memberId.lastName}` : 'Unknown',
+      vendorNo: trx.memberId?.vendorNo || trx.vendorNo || 'N/A', 
+      name: trx.memberId ? `${trx.memberId.firstName || ''} ${trx.memberId.lastName || ''}`.trim() : (trx.memberName || 'Unknown'),
       amount: trx.amount,
       type: trx.category || 'Savings', 
-      status: 'Credited' 
+      status: trx.status === 'REVERSED' ? 'Reversed' : 'Credited' 
     }));
 
     res.status(200).json({ success: true, data: formattedTransactions });

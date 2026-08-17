@@ -1,4 +1,5 @@
 const xlsx = require("xlsx"); // NEW: Required for reading the Initialization Excel file
+const mongoose = require("mongoose");
 const User = require("../models/User"); 
 const bcrypt = require("bcryptjs"); 
 const jwt = require("jsonwebtoken"); 
@@ -213,9 +214,49 @@ const updateProfile = async (req, res) => {
 };
 
 // --- 7. UPGRADED DATABASE PURGE LOGIC ---
+const getMemberPurgeStats = async (req, res) => {
+  try {
+    const { memberId } = req.params;
+    let query = {};
+    if (mongoose.Types.ObjectId.isValid(memberId)) {
+      query = { _id: memberId };
+    } else {
+      query = { vendorNo: memberId };
+    }
+
+    const member = await User.findOne(query).select('-password');
+    if (!member) {
+      return res.status(404).json({ success: false, message: "Member not found with the given ID / Vendor No." });
+    }
+
+    const [transactionsCount, loansCount] = await Promise.all([
+      TransactionLog.countDocuments({ $or: [{ vendorNo: member.vendorNo }, { memberId: member._id }] }),
+      Loan.countDocuments({ memberId: member._id }),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      member,
+      transactionsCount,
+      loansCount
+    });
+  } catch (error) {
+    console.error("Member Purge Stats Error:", error);
+    res.status(500).json({ success: false, message: "Failed to retrieve member stats." });
+  }
+};
+
 const purgeDatabase = async (req, res) => {
   try {
-    const { collections, dateCondition, startDateTime, endDateTime, adminPassword } = req.body;
+    const { 
+      purgeScope = 'GLOBAL', // 'GLOBAL' or 'MEMBER'
+      targetMemberId,
+      collections = [], 
+      dateCondition = 'ALL', 
+      startDateTime, 
+      endDateTime, 
+      adminPassword 
+    } = req.body;
 
     // Verify Admin Password using logged-in user's ID
     const adminUser = await User.findById(req.user.id || req.user._id); 
@@ -249,6 +290,65 @@ const purgeDatabase = async (req, res) => {
 
     const details = { transactionsDeleted: 0, loansDeleted: 0, usersDeleted: 0 };
 
+    // --- SCOPE: MEMBER-SPECIFIC PURGE ---
+    if (purgeScope === 'MEMBER') {
+      if (!targetMemberId) {
+        return res.status(400).json({ success: false, message: "Target Member ID or Vendor Number is required." });
+      }
+
+      let memberQuery = {};
+      if (mongoose.Types.ObjectId.isValid(targetMemberId)) {
+        memberQuery = { _id: targetMemberId };
+      } else {
+        memberQuery = { vendorNo: targetMemberId };
+      }
+
+      const targetMember = await User.findOne(memberQuery);
+      if (!targetMember) {
+        return res.status(404).json({ success: false, message: "Selected member not found." });
+      }
+
+      if (targetMember.role === 'admin') {
+        return res.status(403).json({ success: false, message: "Security Violation: Admin accounts cannot be purged or deleted." });
+      }
+
+      // 1. Transactions for this member
+      if (collections.includes('TRANSACTIONS') || collections.includes('PROFILE')) {
+        const txQuery = { 
+          $or: [{ vendorNo: targetMember.vendorNo }, { memberId: targetMember._id }],
+          ...dateQuery
+        };
+        const txRes = await TransactionLog.deleteMany(txQuery);
+        details.transactionsDeleted = txRes.deletedCount;
+      }
+
+      // 2. Loans for this member
+      if (collections.includes('LOANS') || collections.includes('PROFILE')) {
+        const loanQuery = { memberId: targetMember._id, ...dateQuery };
+        const loanRes = await Loan.deleteMany(loanQuery);
+        details.loansDeleted = loanRes.deletedCount;
+      }
+
+      // 3. Complete Profile deletion
+      if (collections.includes('PROFILE') || collections.includes('USERS')) {
+        const userRes = await User.deleteOne({ _id: targetMember._id });
+        details.usersDeleted = userRes.deletedCount;
+      }
+
+      details.targetMember = {
+        name: targetMember.name,
+        vendorNo: targetMember.vendorNo,
+        designation: targetMember.designation
+      };
+
+      return res.status(200).json({
+        success: true,
+        message: `Member data for "${targetMember.name}" (${targetMember.vendorNo}) purged successfully.`,
+        details
+      });
+    }
+
+    // --- SCOPE: GLOBAL PURGE ---
     if (collections.includes('TRANSACTIONS')) {
       const result = await TransactionLog.deleteMany(dateQuery);
       details.transactionsDeleted = result.deletedCount;
@@ -407,5 +507,6 @@ module.exports = {
   getProfile,
   updateProfile,
   purgeDatabase,
+  getMemberPurgeStats,
   systemInitialization 
-};  
+};

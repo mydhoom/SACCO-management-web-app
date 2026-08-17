@@ -257,54 +257,94 @@ exports.generateCashbook = async (req, res) => {
     const end = new Date(endDate);
     end.setHours(23, 59, 59, 999); // Include the whole end day
 
-    // 1. Fetch transactions within the date range (Now with Names!)
+    // 1. Fetch transactions within the date range (excluding mirror Folio 101 entries to avoid double counting)
     const transactions = await TransactionLog.find({
       transactionDate: { $gte: start, $lte: end },
-      status: 'COMPLETED'
+      ledgerFolio: { $ne: '101' }
     })
-    .populate('memberId', 'name vendorNo firstName lastName') // <--- THIS PULLS THE REAL NAME
+    .populate('memberId', 'name vendorNo firstName lastName')
     .sort({ transactionDate: 1 })
-    .lean(); // <--- Makes the data lighter and faster to send
+    .lean();
 
-    // 2. Fetch opening balance (All completed transactions BEFORE the start date)
+    // 2. Fetch opening balance (All valid completed transactions BEFORE the start date)
     const previousTransactions = await TransactionLog.find({
       transactionDate: { $lt: start },
-      status: 'COMPLETED'
-    });
+      ledgerFolio: { $ne: '101' },
+      status: { $ne: 'REVERSED' },
+      category: { $ne: 'REVERSAL' }
+    }).lean();
 
-    // Calculate Opening Balance
+    // Calculate Effective Opening Balance
     let openingBalance = 0;
     previousTransactions.forEach(trx => {
-      // Assuming Credits increase the society's cash and Debits decrease it
-      if (trx.entryType === 'CREDIT') openingBalance += trx.amount;
-      if (trx.entryType === 'DEBIT') openingBalance -= trx.amount;
+      // Non-101 Credit increases society cash (Receipt), Debit decreases society cash (Payment)
+      if (trx.entryType === 'CREDIT') openingBalance += (trx.amount || 0);
+      if (trx.entryType === 'DEBIT') openingBalance -= (trx.amount || 0);
     });
 
-    // 3. Separate current period into Receipts and Payments for the T-Format UI
+    // 3. Categorize current period into Receipts and Payments, tagging reversals
     const receipts = [];
     const payments = [];
-    let periodNet = 0;
+
+    let grossReceiptsTotal = 0;
+    let reversedReceiptsTotal = 0;
+    
+    let grossPaymentsTotal = 0;
+    let reversedPaymentsTotal = 0;
 
     transactions.forEach(trx => {
+      const isReversed = trx.status === 'REVERSED';
+      const isReversalCounter = trx.category === 'REVERSAL';
+      const amount = Number(trx.amount || 0);
+
+      // Enhance transaction object with clear flags
+      const enrichedTrx = {
+        ...trx,
+        isReversed,
+        isReversalCounter,
+        isEffective: !isReversed && !isReversalCounter
+      };
+
       if (trx.entryType === 'CREDIT') {
-        receipts.push(trx);
-        periodNet += trx.amount;
+        receipts.push(enrichedTrx);
+        if (enrichedTrx.isEffective) {
+          grossReceiptsTotal += amount;
+        } else if (isReversed) {
+          reversedReceiptsTotal += amount;
+        }
       } else if (trx.entryType === 'DEBIT') {
-        payments.push(trx);
-        periodNet -= trx.amount;
+        payments.push(enrichedTrx);
+        if (enrichedTrx.isEffective) {
+          grossPaymentsTotal += amount;
+        } else if (isReversed) {
+          reversedPaymentsTotal += amount;
+        }
       }
     });
 
-    const closingBalance = openingBalance + periodNet;
+    const effectiveReceiptsTotal = grossReceiptsTotal;
+    const effectivePaymentsTotal = grossPaymentsTotal;
 
-    // Send everything back to the frontend
+    const netMovement = effectiveReceiptsTotal - effectivePaymentsTotal;
+    const closingBalance = openingBalance + netMovement;
+
+    // Send enhanced dataset to frontend
     res.status(200).json({
       success: true,
       data: {
         openingBalance,
         closingBalance,
         receipts,
-        payments
+        payments,
+        summary: {
+          grossReceiptsTotal,
+          reversedReceiptsTotal,
+          effectiveReceiptsTotal,
+          grossPaymentsTotal,
+          reversedPaymentsTotal,
+          effectivePaymentsTotal,
+          netMovement
+        }
       }
     });
 
@@ -313,3 +353,4 @@ exports.generateCashbook = async (req, res) => {
     res.status(500).json({ success: false, message: "Server error generating Cashbook." });
   }
 };
+
