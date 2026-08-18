@@ -158,8 +158,50 @@ exports.getAiContext = async (req, res) => {
 
 
 // ============================================================
-// 2. HANDLE AI CHAT — Multi-provider: Groq, Gemini, or OpenAI
-// Set AI_PROVIDER=GEMINI (or GROQ / OPENAI) in your .env to choose.
+// RULE-BASED SMART FALLBACK GENERATOR
+// ============================================================
+const generateRuleBasedFallback = (message, context) => {
+  const q = (message || '').toLowerCase();
+  
+  if (q.includes('loan limit') || q.includes('maximum loan') || q.includes('eligibility')) {
+    if (context?.role === 'member') {
+      const eligibility = (context.shareBalance || 0) * 10 - (context.loanOutstanding || 0);
+      return `Based on society bylaws, your maximum loan eligibility is up to 10 times your Share Capital (Rs. ${(context.shareBalance || 0).toLocaleString('en-IN')}). Your current net eligible loan amount is approximately Rs. ${Math.max(0, eligibility).toLocaleString('en-IN')}.`;
+    }
+    return "Society members can avail loans up to 10 times their accumulated Share Capital balance subject to committee clearance.";
+  }
+
+  if (q.includes('interest rate') || q.includes('loan rate') || q.includes('rate of interest')) {
+    return "The society regular loan interest rate is 9.5% p.a. calculated on a reducing balance basis, with flexible tenure options up to 60 months.";
+  }
+
+  if (q.includes('rd') || q.includes('recurring deposit') || q.includes('savings')) {
+    if (context?.role === 'member') {
+      return `Your current RD balance is Rs. ${(context.rdBalance || 0).toLocaleString('en-IN')} with a monthly contribution of Rs. ${(context.monthlyRDAmount || 0).toLocaleString('en-IN')}. Monthly RD accrues dividend & incentive interests declared at year-end.`;
+    }
+    return "Monthly Recurring Deposit (RD) contributions earn compounding dividend incentives distributed annually during year-end processing.";
+  }
+
+  if (q.includes('kyc') || q.includes('document') || q.includes('update profile') || q.includes('aadhar') || q.includes('pan')) {
+    return "To update your KYC, please keep your Aadhaar Card, PAN Card, and Bank Passbook/Cheque leaf handy. You can submit updates via the Helpdesk or visit the society office.";
+  }
+
+  if (q.includes('foreclosure') || q.includes('preclose') || q.includes('close loan')) {
+    return "To foreclose an active loan, you can submit a request under 'Helpdesk & Messages' with category 'Loan Query', or visit the branch for a physical clearance certificate.";
+  }
+
+  if (q.includes('balance') || q.includes('summary') || q.includes('account')) {
+    if (context?.role === 'member') {
+      return `Hello ${context.name}! Here is your account snapshot: Share Capital: Rs. ${(context.shareBalance || 0).toLocaleString('en-IN')}, RD Balance: Rs. ${(context.rdBalance || 0).toLocaleString('en-IN')}, Outstanding Loan: Rs. ${(context.loanOutstanding || 0).toLocaleString('en-IN')}.`;
+    }
+    return `Hello ${context.adminName || 'Admin'}! Total active members: ${context.totalMembers || 0}, Total Share Capital: Rs. ${(context.totalShareCapital || 0).toLocaleString('en-IN')}.`;
+  }
+
+  return "Thank you for reaching out! For specific account inquiries, loan clearances, or official administrative actions, you can submit a ticket to our Executive Officers right here in the Helpdesk.";
+};
+
+// ============================================================
+// 2. HANDLE AI CHAT — Multi-provider: Groq, Gemini, or Smart Rule Fallback
 // ============================================================
 exports.handleAiChat = async (req, res) => {
   try {
@@ -171,7 +213,8 @@ exports.handleAiChat = async (req, res) => {
 
     const provider = getActiveProvider();
     if (!provider) {
-      return res.status(503).json({ error: 'No AI provider is configured. Please add GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY to your .env file.' });
+      const fallbackReply = generateRuleBasedFallback(message, context);
+      return res.json({ success: true, reply: fallbackReply, provider: 'RULE_ENGINE' });
     }
 
     // Language instruction
@@ -308,13 +351,18 @@ Rules:
 
     res.json({
       success: true,
-      reply: reply || "I'm sorry, I couldn't generate a response. Please try again.",
-      provider
+      reply: reply || generateRuleBasedFallback(message, context),
+      provider: provider || 'FALLBACK'
     });
 
   } catch (error) {
     console.error('AI Chat Error:', error);
-    res.status(500).json({ error: `AI service encountered an error: ${error.message}` });
+    const fallbackReply = generateRuleBasedFallback(req.body?.message, req.body?.context);
+    res.json({
+      success: true,
+      reply: fallbackReply,
+      provider: 'FALLBACK_ON_ERROR'
+    });
   }
 };
 
