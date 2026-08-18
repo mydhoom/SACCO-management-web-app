@@ -1,7 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import autoprefixer from 'autoprefixer'
+
+const srcDir = fileURLToPath(new URL('./src', import.meta.url))
+const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000
 
 export default defineConfig(() => {
   return {
@@ -21,16 +25,20 @@ export default defineConfig(() => {
       alias: [
         {
           find: 'src/',
-          replacement: `${path.resolve(__dirname, 'src')}/`,
+          replacement: `${srcDir}/`,
         },
       ],
       extensions: ['.mjs', '.js', '.ts', '.jsx', '.tsx', '.json', '.scss'],
     },
     server: {
-      port: 3000,
-      proxy: {
-        // https://vitejs.dev/config/server-options.html
-      },
+      host: '0.0.0.0',
+      port: port,
+    },
+    preview: {
+      host: '0.0.0.0',
+      port: port,
+      allowedHosts: true,
     },
   }
 })
+

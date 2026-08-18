@@ -7,7 +7,8 @@ import {
 import CIcon from "@coreui/icons-react"
 import {
   cilEnvelopeClosed, cilEnvelopeOpen, cilSend, cilPlus,
-  cilX, cilSearch, cilReload, cilTag, cilClock, cilCheckCircle
+  cilX, cilSearch, cilReload, cilTag, cilClock, cilCheckCircle,
+  cilPaperclip, cilImage, cilDescription
 } from "@coreui/icons"
 
 const API = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "http://localhost:5000"
@@ -44,43 +45,126 @@ const fmt = (d) => d ? new Date(d).toLocaleString("en-IN", { day:"2-digit", mont
 const fmtShort = (d) => d ? new Date(d).toLocaleString("en-IN", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" }) : "—"
 
 // ── Chat Message Bubble ──────────────────────────────────────────────────────
-const MessageBubble = ({ msg, isSelf }) => (
-  <div style={{ display:"flex", justifyContent: isSelf ? "flex-end" : "flex-start", marginBottom: 10 }}>
-    <div style={{
-      maxWidth: "78%",
-      padding: "10px 14px",
-      borderRadius: isSelf ? "18px 18px 4px 18px" : "4px 18px 18px 18px",
-      background: isSelf ? "linear-gradient(135deg,#4361ee,#7209b7)" : "#f3f4f8",
-      color: isSelf ? "#fff" : "#1e293b",
-      boxShadow: "0 1px 4px rgba(0,0,0,0.10)",
-      fontSize: 14, lineHeight: 1.55
-    }}>
-      <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 3, opacity: 0.75 }}>
-        {isSelf ? "You" : msg.senderName}
+const MessageBubble = ({ msg, isSelf, onPreviewImage }) => {
+  const isImage = msg.attachmentUrl && (
+    msg.attachmentType?.startsWith("image/") ||
+    /\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i.test(msg.attachmentUrl) ||
+    msg.attachmentUrl.startsWith("data:image/")
+  )
+
+  return (
+    <div style={{ display:"flex", justifyContent: isSelf ? "flex-end" : "flex-start", marginBottom: 12 }}>
+      <div style={{
+        maxWidth: "78%",
+        padding: "10px 14px",
+        borderRadius: isSelf ? "18px 18px 4px 18px" : "4px 18px 18px 18px",
+        background: isSelf ? "linear-gradient(135deg,#4361ee,#7209b7)" : "#f3f4f8",
+        color: isSelf ? "#fff" : "#1e293b",
+        boxShadow: "0 1px 4px rgba(0,0,0,0.10)",
+        fontSize: 14, lineHeight: 1.55
+      }}>
+        <div style={{ fontWeight: 600, fontSize: 11, marginBottom: 4, opacity: 0.75 }}>
+          {isSelf ? "You" : msg.senderName}
+        </div>
+        {msg.content && msg.content !== "(Attachment)" && (
+          <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{msg.content}</div>
+        )}
+
+        {/* Attachment Display */}
+        {msg.attachmentUrl && (
+          <div style={{ marginTop: 8 }}>
+            {isImage ? (
+              <div>
+                <img
+                  src={msg.attachmentUrl}
+                  alt={msg.attachmentName || "Attached screenshot"}
+                  style={{ maxHeight: 180, maxWidth: "100%", borderRadius: 8, cursor: "pointer", objectFit: "cover", border: isSelf ? "1px solid rgba(255,255,255,0.3)" : "1px solid #cbd5e1" }}
+                  onClick={() => onPreviewImage(msg.attachmentUrl, msg.attachmentName)}
+                  title="Click to zoom screenshot"
+                />
+                <div style={{ fontSize: 10, marginTop: 2, opacity: 0.8 }}>📷 {msg.attachmentName || "Screenshot (click to zoom)"}</div>
+              </div>
+            ) : (
+              <a
+                href={msg.attachmentUrl}
+                download={msg.attachmentName || "document"}
+                target="_blank"
+                rel="noreferrer"
+                className={`btn btn-sm d-inline-flex align-items-center gap-1 mt-1 ${isSelf ? "btn-light text-primary" : "btn-outline-primary"}`}
+                style={{ fontSize: 11, padding: "3px 8px" }}
+              >
+                <CIcon icon={cilDescription} />
+                <span>{msg.attachmentName || "View Attachment"}</span>
+              </a>
+            )}
+          </div>
+        )}
+
+        <div style={{ fontSize: 10, marginTop: 5, opacity: 0.65, textAlign: "right" }}>{fmtShort(msg.createdAt)}</div>
       </div>
-      <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{msg.content}</div>
-      <div style={{ fontSize: 10, marginTop: 5, opacity: 0.6, textAlign: "right" }}>{fmtShort(msg.createdAt)}</div>
     </div>
-  </div>
-)
+  )
+}
 
 // ── New Ticket Modal ─────────────────────────────────────────────────────────
 const NewTicketModal = ({ onClose, onCreated, token }) => {
-  const [subject,  setSubject]  = useState("")
-  const [category, setCategory] = useState("GENERAL_INQUIRY")
-  const [priority, setPriority] = useState("NORMAL")
-  const [content,  setContent]  = useState("")
-  const [busy,     setBusy]     = useState(false)
-  const [err,      setErr]      = useState("")
+  const [subject,        setSubject]        = useState("")
+  const [category,       setCategory]       = useState("GENERAL_INQUIRY")
+  const [priority,       setPriority]       = useState("NORMAL")
+  const [content,        setContent]        = useState("")
+  const [attachmentUrl,  setAttachmentUrl]  = useState(null)
+  const [attachmentName, setAttachmentName] = useState("")
+  const [attachmentType, setAttachmentType] = useState("")
+  const [busy,           setBusy]           = useState(false)
+  const [err,            setErr]            = useState("")
+  const fileInputRef = useRef(null)
+
+  const handleFile = (file) => {
+    if (!file) return
+    if (file.size > 15 * 1024 * 1024) {
+      setErr("File size exceeds 15MB limit.")
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      setAttachmentUrl(e.target.result)
+      setAttachmentName(file.name)
+      setAttachmentType(file.type || "application/octet-stream")
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        const blob = items[i].getAsFile()
+        handleFile(blob)
+        break
+      }
+    }
+  }
 
   const submit = async () => {
-    if (!subject.trim() || !content.trim()) { setErr("Subject and message are required."); return }
+    if (!subject.trim() || (!content.trim() && !attachmentUrl)) {
+      setErr("Subject and message (or attachment) are required.")
+      return
+    }
     setBusy(true); setErr("")
     try {
       const res  = await fetch(`${API}/api/communication/threads`, {
         method: "POST",
         headers: { "Content-Type":"application/json", "Authorization":`Bearer ${token}` },
-        body: JSON.stringify({ subject: subject.trim(), category, priority, content: content.trim() })
+        body: JSON.stringify({
+          subject: subject.trim(),
+          category,
+          priority,
+          content: content.trim() || "(Screenshot/File attached)",
+          attachmentUrl,
+          attachmentName,
+          attachmentType
+        })
       })
       const data = await res.json()
       if (data.success) { onCreated(data.data); onClose() }
@@ -102,7 +186,7 @@ const NewTicketModal = ({ onClose, onCreated, token }) => {
           <label className="form-label fw-semibold">Subject <span className="text-danger">*</span></label>
           <CFormInput placeholder="Brief subject of your query..." value={subject} onChange={e => setSubject(e.target.value)} />
         </div>
-        <div className="d-flex gap-3 mb-3">
+        <div className="d-flex gap-3 mb-3 flex-wrap">
           <div className="flex-grow-1">
             <label className="form-label fw-semibold">Category</label>
             <CFormSelect value={category} onChange={e => setCategory(e.target.value)}>
@@ -119,10 +203,53 @@ const NewTicketModal = ({ onClose, onCreated, token }) => {
             </CFormSelect>
           </div>
         </div>
-        <div className="mb-2">
-          <label className="form-label fw-semibold">Your Message <span className="text-danger">*</span></label>
-          <CFormTextarea rows={5} placeholder="Describe your query in detail..." value={content} onChange={e => setContent(e.target.value)} />
-          <div className="text-muted small text-end mt-1">{content.length} chars</div>
+        <div className="mb-3">
+          <label className="form-label fw-semibold">Your Message</label>
+          <CFormTextarea
+            rows={4}
+            placeholder="Describe your query in detail... (Tip: You can press Ctrl+V here to paste a screenshot directly!)"
+            value={content}
+            onChange={e => setContent(e.target.value)}
+            onPaste={handlePaste}
+          />
+        </div>
+
+        {/* Attachment preview / upload */}
+        <div className="p-3 border rounded bg-light mb-2">
+          <div className="d-flex justify-content-between align-items-center mb-2">
+            <span className="fw-semibold small d-flex align-items-center gap-1">
+              <CIcon icon={cilPaperclip} /> Attach File or Screenshot
+            </span>
+            <CButton size="sm" color="primary" variant="outline" onClick={() => fileInputRef.current?.click()}>
+              Browse File...
+            </CButton>
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: "none" }}
+              accept="image/*,.pdf,.doc,.docx"
+              onChange={e => handleFile(e.target.files?.[0])}
+            />
+          </div>
+          {attachmentUrl ? (
+            <div className="d-flex align-items-center gap-3 bg-white p-2 rounded border">
+              {attachmentType?.startsWith("image/") || attachmentUrl.startsWith("data:image/") ? (
+                <img src={attachmentUrl} alt="Preview" style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 4 }} />
+              ) : (
+                <CIcon icon={cilDescription} size="xl" className="text-primary" />
+              )}
+              <div className="flex-grow-1 text-truncate small">
+                <strong>{attachmentName || "Attached file"}</strong>
+              </div>
+              <CButton size="sm" color="danger" variant="outline" onClick={() => { setAttachmentUrl(null); setAttachmentName(""); setAttachmentType(""); }}>
+                <CIcon icon={cilX} />
+              </CButton>
+            </div>
+          ) : (
+            <div className="text-muted" style={{ fontSize: 11 }}>
+              Supported: Images (PNG, JPG, WebP), PDFs, Documents (Max 15MB). You can also paste screenshots directly.
+            </div>
+          )}
         </div>
       </CModalBody>
       <CModalFooter>
@@ -137,30 +264,35 @@ const NewTicketModal = ({ onClose, onCreated, token }) => {
 
 // ── Main Member Helpdesk View ────────────────────────────────────────────────
 const MemberHelpdesk = () => {
-  const token      = localStorage.getItem("adminToken") || localStorage.getItem("token")
-  const userStr    = localStorage.getItem("user") || localStorage.getItem("adminUser") || "{}"
-  const currentUser = (() => { try { return JSON.parse(userStr) } catch { return {} } })()
+  const token = localStorage.getItem("adminToken") || localStorage.getItem("token")
 
-  const [threads,    setThreads]    = useState([])
-  const [active,     setActive]     = useState(null)   // full thread with messages
-  const [loading,    setLoading]    = useState(true)
-  const [loadingMsg, setLoadingMsg] = useState(false)
-  const [replyText,  setReplyText]  = useState("")
-  const [sending,    setSending]    = useState(false)
-  const [showNew,    setShowNew]    = useState(false)
-  const [search,     setSearch]     = useState("")
-  const [filter,     setFilter]     = useState("")
-  const chatEndRef = useRef(null)
+  const [threads,        setThreads]        = useState([])
+  const [active,         setActive]         = useState(null)
+  const [loading,        setLoading]        = useState(true)
+  const [loadingMsg,     setLoadingMsg]     = useState(false)
+  const [replyText,      setReplyText]      = useState("")
+  const [replyAttachUrl, setReplyAttachUrl] = useState(null)
+  const [replyAttachName,setReplyAttachName]= useState("")
+  const [replyAttachType,setReplyAttachType]= useState("")
+  const [sending,        setSending]        = useState(false)
+  const [showNew,        setShowNew]        = useState(false)
+  const [search,         setSearch]         = useState("")
+  const [filter,         setFilter]         = useState("")
+  const [previewImage,   setPreviewImage]   = useState(null)
+  const chatEndRef       = useRef(null)
+  const replyFileInputRef= useRef(null)
 
   const loadThreads = useCallback(async () => {
     setLoading(true)
     try {
       const params = new URLSearchParams()
-      if (search)    params.set("search", search)
-      if (filter)    params.set("status", filter)
+      if (search) params.set("search", search)
+      if (filter) params.set("status", filter)
       const res  = await fetch(`${API}/api/communication/threads?${params}`, { headers:{ "Authorization":`Bearer ${token}` } })
       const data = await res.json()
-      if (data.success) setThreads(data.data)
+      if (data.success && Array.isArray(data.data)) {
+        setThreads(data.data)
+      }
     } catch {}
     finally { setLoading(false) }
   }, [token, search, filter])
@@ -172,26 +304,64 @@ const MemberHelpdesk = () => {
       const data = await res.json()
       if (data.success) {
         setActive(data.data)
-        // refresh thread list to clear unread badge
         setThreads(prev => prev.map(t => t.ticketId === ticketId ? { ...t, unreadByMember: 0 } : t))
       }
     } catch {}
     finally { setLoadingMsg(false) }
   }
 
+  const handleReplyFile = (file) => {
+    if (!file) return
+    if (file.size > 15 * 1024 * 1024) {
+      alert("File size exceeds 15MB limit.")
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      setReplyAttachUrl(e.target.result)
+      setReplyAttachName(file.name)
+      setReplyAttachType(file.type || "application/octet-stream")
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleReplyPaste = (e) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        const blob = items[i].getAsFile()
+        handleReplyFile(blob)
+        break
+      }
+    }
+  }
+
   const sendReply = async () => {
-    if (!replyText.trim() || !active) return
+    if ((!replyText.trim() && !replyAttachUrl) || !active) return
     setSending(true)
     try {
       const res  = await fetch(`${API}/api/communication/threads/${active.ticketId}/reply`, {
         method: "POST",
         headers: { "Content-Type":"application/json", "Authorization":`Bearer ${token}` },
-        body: JSON.stringify({ content: replyText.trim() })
+        body: JSON.stringify({
+          content: replyText.trim(),
+          attachmentUrl: replyAttachUrl,
+          attachmentName: replyAttachName,
+          attachmentType: replyAttachType
+        })
       })
       const data = await res.json()
       if (data.success) {
-        setActive(prev => ({ ...prev, messages: [...prev.messages, data.data], status: prev.status === "RESOLVED" ? "IN_PROGRESS" : prev.status }))
+        setActive(prev => ({
+          ...prev,
+          messages: [...prev.messages, data.data],
+          status: prev.status === "RESOLVED" ? "IN_PROGRESS" : prev.status
+        }))
         setReplyText("")
+        setReplyAttachUrl(null)
+        setReplyAttachName("")
+        setReplyAttachType("")
         loadThreads()
       }
     } catch {}
@@ -206,13 +376,13 @@ const MemberHelpdesk = () => {
       <CCol xs={12}>
         <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
           <h4 className="mb-0 fw-bold d-flex align-items-center gap-2" style={{ color:"#4361ee" }}>
-            <CIcon icon={cilEnvelopeOpen} size="lg" /> My Helpdesk & Messages
+            <CIcon icon={cilEnvelopeOpen} size="lg" /> My Helpdesk &amp; Messages
           </h4>
           <CButton className="text-white fw-bold" style={{ background:"linear-gradient(135deg,#4361ee,#7209b7)", border:"none" }} onClick={() => setShowNew(true)}>
             <CIcon icon={cilPlus} className="me-1" /> New Query
           </CButton>
         </div>
-        <p className="text-muted small mb-3">Communicate directly with the Society Admin. Track all your queries, responses, and status updates here.</p>
+        <p className="text-muted small mb-3">Communicate directly with the Society Admin. Track queries, share screenshots/slips, and receive resolution updates.</p>
       </CCol>
 
       {/* ── Left: Thread List ── */}
@@ -222,7 +392,7 @@ const MemberHelpdesk = () => {
             <CInputGroup size="sm" className="mb-2">
               <CInputGroupText><CIcon icon={cilSearch} /></CInputGroupText>
               <CFormInput placeholder="Search tickets..." value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && loadThreads()} />
-              {search && <CButton color="secondary" variant="outline" onClick={() => { setSearch(""); }}><CIcon icon={cilX} /></CButton>}
+              {search && <CButton color="secondary" variant="outline" onClick={() => setSearch("")}><CIcon icon={cilX} /></CButton>}
             </CInputGroup>
             <div className="d-flex gap-1 flex-wrap">
               {["","OPEN","IN_PROGRESS","AWAITING_MEMBER","RESOLVED"].map(s => (
@@ -315,12 +485,13 @@ const MemberHelpdesk = () => {
             </CCardHeader>
 
             {/* Messages */}
-            <CCardBody className="p-3" style={{ overflowY:"auto", minHeight:320, maxHeight:"50vh", background:"#f8f9ff" }}>
-              {active.messages.map((msg) => (
+            <CCardBody className="p-3" style={{ overflowY:"auto", minHeight:300, maxHeight:"48vh", background:"#f8f9ff" }}>
+              {active.messages.map((msg, idx) => (
                 <MessageBubble
-                  key={msg._id}
+                  key={msg._id || msg.createdAt || idx}
                   msg={msg}
                   isSelf={msg.senderRole === "member"}
+                  onPreviewImage={(url, name) => setPreviewImage({ url, name })}
                 />
               ))}
               <div ref={chatEndRef} />
@@ -329,25 +500,58 @@ const MemberHelpdesk = () => {
             {/* Reply box */}
             {active.status !== "CLOSED" ? (
               <div className="p-3 border-top bg-white">
+                {/* Reply attachment badge */}
+                {replyAttachUrl && (
+                  <div className="d-flex align-items-center gap-2 mb-2 p-2 bg-light rounded border">
+                    {replyAttachType?.startsWith("image/") || replyAttachUrl.startsWith("data:image/") ? (
+                      <img src={replyAttachUrl} alt="Preview" style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 4 }} />
+                    ) : (
+                      <CIcon icon={cilDescription} />
+                    )}
+                    <span className="small text-truncate flex-grow-1">{replyAttachName || "Attachment ready"}</span>
+                    <CButton size="sm" color="danger" variant="ghost" onClick={() => { setReplyAttachUrl(null); setReplyAttachName(""); setReplyAttachType(""); }}>
+                      <CIcon icon={cilX} />
+                    </CButton>
+                  </div>
+                )}
+
                 <div className="d-flex gap-2 align-items-end">
+                  <CButton
+                    color="secondary"
+                    variant="outline"
+                    title="Attach image or file"
+                    style={{ borderRadius: 10, height: 48 }}
+                    onClick={() => replyFileInputRef.current?.click()}
+                  >
+                    <CIcon icon={cilPaperclip} />
+                  </CButton>
+                  <input
+                    type="file"
+                    ref={replyFileInputRef}
+                    style={{ display: "none" }}
+                    accept="image/*,.pdf,.doc,.docx"
+                    onChange={e => handleReplyFile(e.target.files?.[0])}
+                  />
+
                   <CFormTextarea
                     rows={2}
-                    placeholder={active.status === "RESOLVED" ? "Send a message to reopen this ticket..." : "Type your reply..."}
+                    placeholder={active.status === "RESOLVED" ? "Send a message to reopen this ticket... (Ctrl+V to paste screenshot)" : "Type your reply... (Tip: Paste screenshot with Ctrl+V)"}
                     value={replyText}
                     onChange={e => setReplyText(e.target.value)}
+                    onPaste={handleReplyPaste}
                     onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply() } }}
                     style={{ resize:"none", borderRadius:10, fontSize:14 }}
                   />
                   <CButton
                     className="text-white fw-bold"
-                    style={{ background:"linear-gradient(135deg,#4361ee,#7209b7)", border:"none", borderRadius:10, minWidth:52, height:60 }}
+                    style={{ background:"linear-gradient(135deg,#4361ee,#7209b7)", border:"none", borderRadius:10, minWidth:52, height:48 }}
                     onClick={sendReply}
-                    disabled={sending || !replyText.trim()}
+                    disabled={sending || (!replyText.trim() && !replyAttachUrl)}
                   >
                     {sending ? <CSpinner size="sm" /> : <CIcon icon={cilSend} />}
                   </CButton>
                 </div>
-                <div className="text-muted" style={{ fontSize:10, marginTop:4 }}>Press Enter to send · Shift+Enter for new line</div>
+                <div className="text-muted" style={{ fontSize:10, marginTop:4 }}>Press Enter to send · Shift+Enter for new line · Paste screenshot with Ctrl+V</div>
               </div>
             ) : (
               <div className="p-3 border-top bg-light text-center text-muted small">
@@ -361,10 +565,21 @@ const MemberHelpdesk = () => {
       {/* New Ticket Modal */}
       {showNew && <NewTicketModal token={token} onClose={() => setShowNew(false)} onCreated={() => loadThreads()} />}
 
-      <style>{`
-        .helpdesk-thread-list::-webkit-scrollbar { width: 4px; }
-        .helpdesk-thread-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-      `}</style>
+      {/* Image Lightbox Modal */}
+      {previewImage && (
+        <CModal visible onClose={() => setPreviewImage(null)} size="xl" alignment="center">
+          <CModalHeader>
+            <CModalTitle className="fw-bold">{previewImage.name || "Attachment Preview"}</CModalTitle>
+          </CModalHeader>
+          <CModalBody className="text-center p-2 bg-dark">
+            <img src={previewImage.url} alt="Full preview" style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain" }} />
+          </CModalBody>
+          <CModalFooter>
+            <a href={previewImage.url} download={previewImage.name || "screenshot.png"} className="btn btn-primary btn-sm">Download</a>
+            <CButton color="secondary" size="sm" onClick={() => setPreviewImage(null)}>Close</CButton>
+          </CModalFooter>
+        </CModal>
+      )}
     </CRow>
   )
 }

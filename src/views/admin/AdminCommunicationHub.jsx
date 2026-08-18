@@ -2,12 +2,13 @@
 import {
   CCard, CCardBody, CCardHeader, CRow, CCol, CButton, CSpinner,
   CFormInput, CFormTextarea, CFormSelect, CInputGroup, CInputGroupText,
-  CBadge, CAlert
+  CBadge, CAlert, CModal, CModalHeader, CModalTitle, CModalBody, CModalFooter
 } from "@coreui/react"
 import CIcon from "@coreui/icons-react"
 import {
   cilEnvelopeOpen, cilSend, cilX, cilSearch, cilReload,
-  cilTag, cilClock, cilCheckCircle, cilPeople, cilFilter
+  cilTag, cilClock, cilCheckCircle, cilPeople, cilFilter,
+  cilPaperclip, cilDescription
 } from "@coreui/icons"
 
 const API = (typeof import.meta !== "undefined" && import.meta.env?.VITE_API_URL) || "http://localhost:5000"
@@ -53,10 +54,16 @@ const PRIORITY_META = {
 const fmt = (d) => d ? new Date(d).toLocaleString("en-IN", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit" }) : "—"
 const fmtShort = (d) => d ? new Date(d).toLocaleString("en-IN", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" }) : "—"
 
-const MessageBubble = ({ msg }) => {
+const MessageBubble = ({ msg, onPreviewImage }) => {
   const isAdmin = msg.senderRole !== "member"
+  const isImage = msg.attachmentUrl && (
+    msg.attachmentType?.startsWith("image/") ||
+    /\.(jpg|jpeg|png|gif|webp)(\?.*)?$/i.test(msg.attachmentUrl) ||
+    msg.attachmentUrl.startsWith("data:image/")
+  )
+
   return (
-    <div style={{ display:"flex", justifyContent: isAdmin ? "flex-end" : "flex-start", marginBottom: 10 }}>
+    <div style={{ display:"flex", justifyContent: isAdmin ? "flex-end" : "flex-start", marginBottom: 12 }}>
       <div style={{
         maxWidth: "76%",
         padding: "10px 14px",
@@ -66,11 +73,44 @@ const MessageBubble = ({ msg }) => {
         boxShadow: "0 1px 4px rgba(0,0,0,0.10)",
         fontSize: 14, lineHeight: 1.55
       }}>
-        <div style={{ fontWeight:600, fontSize:11, marginBottom:3, opacity:0.7 }}>
+        <div style={{ fontWeight:600, fontSize:11, marginBottom:3, opacity:0.75 }}>
           {isAdmin ? `${msg.senderName} (${msg.senderRole})` : msg.senderName}
         </div>
-        <div style={{ whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{msg.content}</div>
-        <div style={{ fontSize:10, marginTop:5, opacity:0.55, textAlign:"right" }}>{fmtShort(msg.createdAt)}</div>
+        {msg.content && msg.content !== "(Attachment)" && (
+          <div style={{ whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{msg.content}</div>
+        )}
+
+        {/* Attachment */}
+        {msg.attachmentUrl && (
+          <div style={{ marginTop: 8 }}>
+            {isImage ? (
+              <div>
+                <img
+                  src={msg.attachmentUrl}
+                  alt={msg.attachmentName || "Screenshot"}
+                  style={{ maxHeight: 180, maxWidth: "100%", borderRadius: 8, cursor: "pointer", objectFit: "cover", border: isAdmin ? "1px solid rgba(255,255,255,0.3)" : "1px solid #cbd5e1" }}
+                  onClick={() => onPreviewImage(msg.attachmentUrl, msg.attachmentName)}
+                  title="Click to zoom screenshot"
+                />
+                <div style={{ fontSize: 10, marginTop: 2, opacity: 0.8 }}>📷 {msg.attachmentName || "Screenshot (click to zoom)"}</div>
+              </div>
+            ) : (
+              <a
+                href={msg.attachmentUrl}
+                download={msg.attachmentName || "document"}
+                target="_blank"
+                rel="noreferrer"
+                className={`btn btn-sm d-inline-flex align-items-center gap-1 mt-1 ${isAdmin ? "btn-light text-dark" : "btn-outline-primary"}`}
+                style={{ fontSize: 11, padding: "3px 8px" }}
+              >
+                <CIcon icon={cilDescription} />
+                <span>{msg.attachmentName || "View Attachment"}</span>
+              </a>
+            )}
+          </div>
+        )}
+
+        <div style={{ fontSize:10, marginTop:5, opacity:0.65, textAlign:"right" }}>{fmtShort(msg.createdAt)}</div>
       </div>
     </div>
   )
@@ -79,18 +119,23 @@ const MessageBubble = ({ msg }) => {
 const AdminCommunicationHub = () => {
   const token = localStorage.getItem("adminToken") || localStorage.getItem("token")
 
-  const [threads,    setThreads]    = useState([])
-  const [active,     setActive]     = useState(null)
-  const [loading,    setLoading]    = useState(true)
-  const [loadingMsg, setLoadingMsg] = useState(false)
-  const [replyText,  setReplyText]  = useState("")
-  const [sending,    setSending]    = useState(false)
-  const [search,     setSearch]     = useState("")
-  const [statusF,    setStatusF]    = useState("")
+  const [threads,        setThreads]        = useState([])
+  const [active,         setActive]         = useState(null)
+  const [loading,        setLoading]        = useState(true)
+  const [loadingMsg,     setLoadingMsg]     = useState(false)
+  const [replyText,      setReplyText]      = useState("")
+  const [replyAttachUrl, setReplyAttachUrl] = useState(null)
+  const [replyAttachName,setReplyAttachName]= useState("")
+  const [replyAttachType,setReplyAttachType]= useState("")
+  const [sending,        setSending]        = useState(false)
+  const [search,         setSearch]         = useState("")
+  const [statusF,        setStatusF]        = useState("")
   const [categoryF,  setCategoryF]  = useState("")
   const [priorityF,  setPriorityF]  = useState("")
   const [totalUnread,setTotalUnread]= useState(0)
+  const [previewImage, setPreviewImage] = useState(null)
   const chatEndRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   // Stats for summary banner
   const stats = {
@@ -110,7 +155,7 @@ const AdminCommunicationHub = () => {
       if (priorityF) p.set("priority", priorityF)
       const res  = await fetch(`${API}/api/communication/threads?${p}&limit=50`, { headers:{ Authorization:`Bearer ${token}` } })
       const data = await res.json()
-      if (data.success) {
+      if (data.success && Array.isArray(data.data)) {
         setThreads(data.data)
         setTotalUnread(data.data.reduce((s, t) => s + (t.unreadByAdmin || 0), 0))
       }
@@ -132,20 +177,59 @@ const AdminCommunicationHub = () => {
     finally { setLoadingMsg(false) }
   }
 
+  const handleFile = (file) => {
+    if (!file) return
+    if (file.size > 15 * 1024 * 1024) {
+      alert("File size exceeds 15MB limit.")
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      setReplyAttachUrl(e.target.result)
+      setReplyAttachName(file.name)
+      setReplyAttachType(file.type || "application/octet-stream")
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handlePaste = (e) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        const blob = items[i].getAsFile()
+        handleFile(blob)
+        break
+      }
+    }
+  }
+
   const sendReply = async (text) => {
-    const msg = text || replyText
-    if (!msg.trim() || !active) return
+    const msg = text !== undefined ? text : replyText
+    if ((!msg.trim() && !replyAttachUrl) || !active) return
     setSending(true)
     try {
       const res  = await fetch(`${API}/api/communication/threads/${active.ticketId}/reply`, {
         method:"POST",
         headers:{ "Content-Type":"application/json", Authorization:`Bearer ${token}` },
-        body: JSON.stringify({ content: msg.trim() })
+        body: JSON.stringify({
+          content: msg.trim(),
+          attachmentUrl: replyAttachUrl,
+          attachmentName: replyAttachName,
+          attachmentType: replyAttachType
+        })
       })
       const data = await res.json()
       if (data.success) {
-        setActive(prev => ({ ...prev, messages:[...prev.messages, data.data], status: prev.status === "OPEN" ? "IN_PROGRESS" : prev.status }))
+        setActive(prev => ({
+          ...prev,
+          messages:[...prev.messages, data.data],
+          status: prev.status === "OPEN" ? "IN_PROGRESS" : prev.status
+        }))
         setReplyText("")
+        setReplyAttachUrl(null)
+        setReplyAttachName("")
+        setReplyAttachType("")
         loadThreads()
       }
     } catch {}
@@ -179,7 +263,7 @@ const AdminCommunicationHub = () => {
             <h4 className="mb-0 fw-bold d-flex align-items-center gap-2" style={{ color:"#f72585" }}>
               <CIcon icon={cilEnvelopeOpen} size="lg" /> Communication &amp; Helpdesk Center
             </h4>
-            <p className="text-muted small mb-0 mt-1">Manage all member queries, complaints, and requests in one place.</p>
+            <p className="text-muted small mb-0 mt-1">Manage all member queries, complaints, and requests with full screenshot and file support.</p>
           </div>
           <div className="d-flex gap-2">
             {totalUnread > 0 && <CBadge color="danger" className="px-3 py-2 fs-6">{totalUnread} Unread</CBadge>}
@@ -192,10 +276,10 @@ const AdminCommunicationHub = () => {
       <CCol xs={12}>
         <div className="d-flex flex-wrap gap-3">
           {[
-            { label:"Open",        val: stats.open,       color:"#f59e0b", bg:"rgba(245,158,11,0.08)" },
-            { label:"In Progress", val: stats.inProgress, color:"#3b82f6", bg:"rgba(59,130,246,0.08)" },
-            { label:"Awaiting Member", val: stats.awaiting,  color:"#06b6d4", bg:"rgba(6,182,212,0.08)" },
-            { label:"Resolved",    val: stats.resolved,   color:"#10b981", bg:"rgba(16,185,129,0.08)" },
+            { label:"Open",            val: stats.open,       color:"#f59e0b", bg:"rgba(245,158,11,0.08)" },
+            { label:"In Progress",     val: stats.inProgress, color:"#3b82f6", bg:"rgba(59,130,246,0.08)" },
+            { label:"Awaiting Member", val: stats.awaiting,   color:"#06b6d4", bg:"rgba(6,182,212,0.08)" },
+            { label:"Resolved",        val: stats.resolved,   color:"#10b981", bg:"rgba(16,185,129,0.08)" },
           ].map(({ label, val, color, bg }) => (
             <div key={label} className="border rounded px-4 py-2 text-center flex-grow-1" style={{ background:bg, borderColor:color+"40" }}>
               <div style={{ color, fontWeight:700, fontSize:22 }}>{val}</div>
@@ -216,14 +300,14 @@ const AdminCommunicationHub = () => {
             </CInputGroup>
             <div className="d-flex gap-1 mb-1 flex-wrap">
               {["","OPEN","IN_PROGRESS","AWAITING_MEMBER","RESOLVED","CLOSED"].map(s => (
-                <CButton key={s} size="sm" color={statusF === s ? "primary" : "secondary"} variant={statusF === s ? undefined : "outline"} className="px-2 py-0" style={{ fontSize:10 }} onClick={() => setStatusF(s)}>
+                <CButton key={s || "all"} size="sm" color={statusF === s ? "primary" : "secondary"} variant={statusF === s ? undefined : "outline"} className="px-2 py-0" style={{ fontSize:10 }} onClick={() => setStatusF(s)}>
                   {s === "" ? "All" : STATUS_META[s]?.label}
                 </CButton>
               ))}
             </div>
             <div className="d-flex gap-2">
               <CFormSelect size="sm" value={categoryF} onChange={e => setCategoryF(e.target.value)} style={{ fontSize:11 }}>
-                {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                {CATEGORIES.map(c => <option key={c.value || "all-cats"} value={c.value}>{c.label}</option>)}
               </CFormSelect>
               <CFormSelect size="sm" value={priorityF} onChange={e => setPriorityF(e.target.value)} style={{ fontSize:11, minWidth:90 }}>
                 <option value="">Priority</option>
@@ -339,7 +423,13 @@ const AdminCommunicationHub = () => {
             {/* Messages */}
             <CCard className="shadow-sm flex-grow-1">
               <CCardBody className="p-3" style={{ overflowY:"auto", minHeight:280, maxHeight:"42vh", background:"#f8f9ff" }}>
-                {active.messages.map(msg => <MessageBubble key={msg._id} msg={msg} />)}
+                {active.messages.map((msg, idx) => (
+                  <MessageBubble
+                    key={msg._id || msg.createdAt || idx}
+                    msg={msg}
+                    onPreviewImage={(url, name) => setPreviewImage({ url, name })}
+                  />
+                ))}
                 <div ref={chatEndRef} />
               </CCardBody>
             </CCard>
@@ -365,25 +455,58 @@ const AdminCommunicationHub = () => {
             {active.status !== "CLOSED" ? (
               <CCard className="shadow-sm">
                 <CCardBody className="p-2">
+                  {/* Reply attachment badge */}
+                  {replyAttachUrl && (
+                    <div className="d-flex align-items-center gap-2 mb-2 p-2 bg-light rounded border">
+                      {replyAttachType?.startsWith("image/") || replyAttachUrl.startsWith("data:image/") ? (
+                        <img src={replyAttachUrl} alt="Preview" style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 4 }} />
+                      ) : (
+                        <CIcon icon={cilDescription} />
+                      )}
+                      <span className="small text-truncate flex-grow-1">{replyAttachName || "Attachment ready"}</span>
+                      <CButton size="sm" color="danger" variant="ghost" onClick={() => { setReplyAttachUrl(null); setReplyAttachName(""); setReplyAttachType(""); }}>
+                        <CIcon icon={cilX} />
+                      </CButton>
+                    </div>
+                  )}
+
                   <div className="d-flex gap-2 align-items-end">
+                    <CButton
+                      color="secondary"
+                      variant="outline"
+                      title="Attach file or screenshot"
+                      style={{ borderRadius: 10, height: 48 }}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <CIcon icon={cilPaperclip} />
+                    </CButton>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      style={{ display: "none" }}
+                      accept="image/*,.pdf,.doc,.docx"
+                      onChange={e => handleFile(e.target.files?.[0])}
+                    />
+
                     <CFormTextarea
                       rows={2}
-                      placeholder="Type your reply to the member..."
+                      placeholder="Type your reply to the member... (Tip: Paste screenshot with Ctrl+V)"
                       value={replyText}
                       onChange={e => setReplyText(e.target.value)}
+                      onPaste={handlePaste}
                       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendReply() } }}
                       style={{ resize:"none", borderRadius:10, fontSize:14 }}
                     />
                     <CButton
                       className="text-white fw-bold"
-                      style={{ background:"linear-gradient(135deg,#f72585,#7209b7)", border:"none", borderRadius:10, minWidth:52, height:60 }}
+                      style={{ background:"linear-gradient(135deg,#f72585,#7209b7)", border:"none", borderRadius:10, minWidth:52, height:48 }}
                       onClick={() => sendReply()}
-                      disabled={sending || !replyText.trim()}
+                      disabled={sending || (!replyText.trim() && !replyAttachUrl)}
                     >
                       {sending ? <CSpinner size="sm" /> : <CIcon icon={cilSend} />}
                     </CButton>
                   </div>
-                  <div className="text-muted" style={{ fontSize:10, marginTop:3 }}>Enter to send · Shift+Enter for new line</div>
+                  <div className="text-muted" style={{ fontSize:10, marginTop:3 }}>Enter to send · Shift+Enter for new line · Paste screenshot with Ctrl+V</div>
                 </CCardBody>
               </CCard>
             ) : (
@@ -396,6 +519,22 @@ const AdminCommunicationHub = () => {
           </div>
         )}
       </CCol>
+
+      {/* Image Lightbox Modal */}
+      {previewImage && (
+        <CModal visible onClose={() => setPreviewImage(null)} size="xl" alignment="center">
+          <CModalHeader>
+            <CModalTitle className="fw-bold">{previewImage.name || "Attachment Preview"}</CModalTitle>
+          </CModalHeader>
+          <CModalBody className="text-center p-2 bg-dark">
+            <img src={previewImage.url} alt="Full preview" style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain" }} />
+          </CModalBody>
+          <CModalFooter>
+            <a href={previewImage.url} download={previewImage.name || "screenshot.png"} className="btn btn-primary btn-sm">Download</a>
+            <CButton color="secondary" size="sm" onClick={() => setPreviewImage(null)}>Close</CButton>
+          </CModalFooter>
+        </CModal>
+      )}
     </CRow>
   )
 }
