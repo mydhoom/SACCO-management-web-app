@@ -52,6 +52,12 @@ const transactionLogSchema = new mongoose.Schema({
       'RD_DEPOSIT',
       'RD_WITHDRAWAL',
       'SUSPENSE_CLEARING',
+      // Payroll Demand Batch Categories
+      'LOAN_REPAYMENT_PAYROLL',
+      'INTEREST_INCOME_PAYROLL',
+      'RD_DEPOSIT_PAYROLL',
+      // BRS Reconciliation Memo (does NOT affect financial balances)
+      'PAYROLL_BATCH_MEMO',
       // Correction Manager
       'REVERSAL'
     ]
@@ -137,6 +143,21 @@ const transactionLogSchema = new mongoose.Schema({
   reversalReason: {
     type: String,
     default: null
+  },
+
+  // ── BRS Memo flag ──
+  // If true, this entry is a reconciliation-only memo entry.
+  // It MUST NOT affect financial balances or appear in Trial Balance / Financial Statements.
+  // It exists solely so the BRS engine can match lump-sum employer payroll deposits.
+  isMemoEntry: {
+    type: Boolean,
+    default: false
+  },
+
+  // For payroll batch entries: stores the demand batch ID
+  demandBatchId: {
+    type: String,
+    default: null
   }
 
 }, { timestamps: true });
@@ -148,9 +169,13 @@ transactionLogSchema.pre('validate', function (next) {
   if (!this.ledgerFolio && this.category) {
     const FOLIO_MAP = {
       'BANK_RECEIPT': '101', 'BANK_PAYOUT': '101',
+      'PAYROLL_BATCH_MEMO': '101', // BRS memo entry — same folio, excluded from balances via isMemoEntry flag
       'LOAN_ASSET': '152', 'LOAN_DISBURSEMENT': '152', 'LOAN_REPAYMENT': '152', 'LOAN_EMI': '152',
+      'LOAN_REPAYMENT_PAYROLL': '152',
       'INTEREST_INCOME': '153',
+      'INTEREST_INCOME_PAYROLL': '153',
       'RECURRING_DEPOSIT': '154', 'RD_LIABILITY': '154', 'RD_DEPOSIT': '154', 'RD_WITHDRAWAL': '154',
+      'RD_DEPOSIT_PAYROLL': '154',
       'SHARE_CAPITAL': '155',
       'MONTHLY_THRIFT': '156', 
       'HONORARIUM': '157', 'ADMISSION_FEE': '157', 'STATIONARY_MISC': '157', 'AUDIT_FEE': '157', 'PENALTY': '157',

@@ -25,6 +25,8 @@ const aiRoutes = require("./routes/aiRoutes"); // AI Financial Assistant
 const correctionRoutes = require("./routes/correctionRoutes"); // Correction Manager
 const dashboardRoutes = require("./routes/dashboardRoutes"); // Analytics Dashboard
 const excelRoutes = require("./routes/excelRoutes"); // Excel Bulk Upload
+const demandRoutes        = require("./routes/demandRoutes"); // Payroll Demand Batch & Clearance
+const communicationRoutes = require("./routes/communicationRoutes"); // Two-way Member Communication
 
 // Initialize Database Connection
 connectDB();
@@ -64,6 +66,8 @@ app.use("/api/ai", aiRoutes); // AI Financial Assistant
 app.use("/api/corrections", correctionRoutes); // Correction Manager (Reversal + Edit + Event Log)
 app.use("/api/dashboard", dashboardRoutes); // Analytics Dashboard & KPIs
 app.use("/api/excel", excelRoutes); // Excel Bulk Upload
+app.use("/api/demand",         demandRoutes);        // Payroll Demand Batch & Clearance
+app.use("/api/communication",  communicationRoutes); // Two-way Member Communication
 
 // ==========================================
 // 3. FALLBACK & ERROR HANDLING
