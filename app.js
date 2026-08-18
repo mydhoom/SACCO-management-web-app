@@ -35,16 +35,22 @@ connectDB();
 const app = express();
 
 // ==========================================
-// 1. CORS allows your React frontend on Vercel to communicate with this backend
-app.use(cors({
-  origin: true,
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"]
-}));
-app.options("*", cors());
+// 1. GLOBAL CORS HEADERS (Universal Cross-Origin for Vercel & Localhost)
+// ==========================================
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  res.setHeader("Access-Control-Allow-Origin", origin || "*");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, Pragma");
+  
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
+  next();
+});
 
-// 2. Helmet for security headers (configured for cross-origin API access)
+// 2. Helmet for security headers
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 })); 
