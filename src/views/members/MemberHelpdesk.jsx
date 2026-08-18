@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useCallback } from "react"
+import React, { useState, useEffect, useRef, useCallback } from "react"
 import {
   CCard, CCardBody, CCardHeader, CRow, CCol, CButton, CSpinner,
   CFormInput, CFormTextarea, CFormSelect, CInputGroup, CInputGroupText,
@@ -215,7 +215,7 @@ const NewTicketModal = ({ onClose, onCreated, token }) => {
         </div>
 
         {/* Attachment preview / upload */}
-        <div className="p-3 border rounded bg-light mb-2">
+        <div className="p-3 border rounded bg-light mb-3">
           <div className="d-flex justify-content-between align-items-center mb-2">
             <span className="fw-semibold small d-flex align-items-center gap-1">
               <CIcon icon={cilPaperclip} /> Attach File or Screenshot
@@ -251,12 +251,39 @@ const NewTicketModal = ({ onClose, onCreated, token }) => {
             </div>
           )}
         </div>
+
+        {/* 🤖 Instant AI Assistant Option */}
+        <div className="p-3 rounded mb-1" style={{ background: "linear-gradient(135deg, rgba(67,97,238,0.08), rgba(114,9,183,0.08))", border: "1px dashed #4361ee" }}>
+          <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+              <strong className="d-flex align-items-center gap-1 text-primary" style={{ fontSize: 13 }}>
+                🤖 Want an instant answer without waiting?
+              </strong>
+              <div className="text-muted small" style={{ fontSize: 12 }}>
+                For general queries about policies, loan interest, RD rules, or bylaws, our AI Financial Advisor can answer in 2 seconds!
+              </div>
+            </div>
+            <CButton
+              size="sm"
+              color="info"
+              className="text-white fw-bold d-flex align-items-center gap-1 shadow-sm"
+              onClick={() => {
+                const q = (subject ? subject + ": " : "") + (content || "General query regarding society schemes");
+                window.dispatchEvent(new CustomEvent('openAiAssistantWithQuery', { detail: { query: q } }))
+              }}
+            >
+              Ask AI Assistant First
+            </CButton>
+          </div>
+        </div>
       </CModalBody>
-      <CModalFooter>
-        <CButton className="text-white fw-bold px-4" style={{ background:"linear-gradient(135deg,#4361ee,#7209b7)", border:"none" }} onClick={submit} disabled={busy}>
-          {busy ? <><CSpinner size="sm" className="me-2" />Submitting...</> : <><CIcon icon={cilSend} className="me-2" />Submit Query</>}
-        </CButton>
-        <CButton color="secondary" variant="outline" onClick={onClose} disabled={busy}>Cancel</CButton>
+      <CModalFooter className="d-flex justify-content-between">
+        <CButton color="secondary" variant="ghost" onClick={onClose} disabled={busy}>Cancel</CButton>
+        <div className="d-flex gap-2">
+          <CButton className="text-white fw-bold px-4 shadow-sm" style={{ background:"linear-gradient(135deg,#4361ee,#7209b7)", border:"none" }} onClick={submit} disabled={busy}>
+            {busy ? <><CSpinner size="sm" className="me-2" />Submitting...</> : <><CIcon icon={cilSend} className="me-2" />Submit to Society Executives</>}
+          </CButton>
+        </div>
       </CModalFooter>
     </CModal>
   )
@@ -375,14 +402,63 @@ const MemberHelpdesk = () => {
     <CRow className="g-3">
       <CCol xs={12}>
         <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-          <h4 className="mb-0 fw-bold d-flex align-items-center gap-2" style={{ color:"#4361ee" }}>
-            <CIcon icon={cilEnvelopeOpen} size="lg" /> My Helpdesk &amp; Messages
-          </h4>
-          <CButton className="text-white fw-bold" style={{ background:"linear-gradient(135deg,#4361ee,#7209b7)", border:"none" }} onClick={() => setShowNew(true)}>
+          <div>
+            <h4 className="mb-0 fw-bold d-flex align-items-center gap-2" style={{ color:"#4361ee" }}>
+              <CIcon icon={cilEnvelopeOpen} size="lg" /> Member Helpdesk &amp; Communication
+            </h4>
+            <p className="text-muted small mb-0 mt-1">Communicate directly with Society Executive Officers &amp; Admins. Track queries and get resolution updates.</p>
+          </div>
+          <CButton className="text-white fw-bold shadow-sm" style={{ background:"linear-gradient(135deg,#4361ee,#7209b7)", border:"none" }} onClick={() => setShowNew(true)}>
             <CIcon icon={cilPlus} className="me-1" /> New Query
           </CButton>
         </div>
-        <p className="text-muted small mb-3">Communicate directly with the Society Admin. Track queries, share screenshots/slips, and receive resolution updates.</p>
+
+        {/* 🤖 Instant AI Self-Service Banner */}
+        <CCard className="border-0 shadow-sm mb-3" style={{ background: "linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%)", color: "#fff", borderRadius: 12 }}>
+          <CCardBody className="p-3">
+            <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
+              <div>
+                <div className="d-flex align-items-center gap-2 mb-1">
+                  <span style={{ fontSize: 20 }}>🤖</span>
+                  <strong className="fs-6 text-white">Instant AI Financial Advisor (24/7 Self-Service)</strong>
+                  <CBadge color="info" className="px-2">Instant Answers</CBadge>
+                </div>
+                <div className="small text-white-50">
+                  Ask our AI Assistant for instant answers to society rules, loan eligibility, RD schemes, and bylaws without waiting for staff review!
+                </div>
+              </div>
+              <CButton
+                size="sm"
+                color="light"
+                className="fw-bold px-3 shadow-sm text-primary"
+                onClick={() => window.dispatchEvent(new CustomEvent('openAiAssistant'))}
+              >
+                Open AI Chat 💬
+              </CButton>
+            </div>
+
+            {/* Quick Question Chips */}
+            <div className="d-flex gap-2 flex-wrap mt-3 pt-2" style={{ borderTop: "1px solid rgba(255,255,255,0.15)" }}>
+              <span className="small text-white-50 d-flex align-items-center">Popular Topics:</span>
+              {[
+                "What is the maximum loan limit and interest rate?",
+                "How is monthly RD interest calculated?",
+                "What documents are needed for KYC update?",
+                "How to apply for a loan foreclosure?"
+              ].map((question, qIdx) => (
+                <button
+                  key={qIdx}
+                  type="button"
+                  className="btn btn-sm btn-outline-light rounded-pill py-0 px-2 text-start"
+                  style={{ fontSize: 11, borderColor: "rgba(255,255,255,0.3)" }}
+                  onClick={() => window.dispatchEvent(new CustomEvent('openAiAssistantWithQuery', { detail: { query: question } }))}
+                >
+                  ⚡ {question}
+                </button>
+              ))}
+            </div>
+          </CCardBody>
+        </CCard>
       </CCol>
 
       {/* ── Left: Thread List ── */}

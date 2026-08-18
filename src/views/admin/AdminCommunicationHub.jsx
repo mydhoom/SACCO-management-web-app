@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useCallback } from "react"
+import React, { useState, useEffect, useRef, useCallback } from "react"
 import {
   CCard, CCardBody, CCardHeader, CRow, CCol, CButton, CSpinner,
   CFormInput, CFormTextarea, CFormSelect, CInputGroup, CInputGroupText,
@@ -74,7 +74,7 @@ const MessageBubble = ({ msg, onPreviewImage }) => {
         fontSize: 14, lineHeight: 1.55
       }}>
         <div style={{ fontWeight:600, fontSize:11, marginBottom:3, opacity:0.75 }}>
-          {isAdmin ? `${msg.senderName} (${msg.senderRole})` : msg.senderName}
+          {isAdmin ? `${msg.senderName} (${msg.senderRole === 'executive' ? 'Executive Officer' : 'Administrator'})` : msg.senderName}
         </div>
         {msg.content && msg.content !== "(Attachment)" && (
           <div style={{ whiteSpace:"pre-wrap", wordBreak:"break-word" }}>{msg.content}</div>
@@ -261,9 +261,9 @@ const AdminCommunicationHub = () => {
         <div className="d-flex align-items-center justify-content-between flex-wrap gap-2">
           <div>
             <h4 className="mb-0 fw-bold d-flex align-items-center gap-2" style={{ color:"#f72585" }}>
-              <CIcon icon={cilEnvelopeOpen} size="lg" /> Communication &amp; Helpdesk Center
+              <CIcon icon={cilEnvelopeOpen} size="lg" /> Executive &amp; Admin Helpdesk Center
             </h4>
-            <p className="text-muted small mb-0 mt-1">Manage all member queries, complaints, and requests with full screenshot and file support.</p>
+            <p className="text-muted small mb-0 mt-1">Address member inquiries, manage complaints, and resolve support requests as an authorized Executive or Admin.</p>
           </div>
           <div className="d-flex gap-2">
             {totalUnread > 0 && <CBadge color="danger" className="px-3 py-2 fs-6">{totalUnread} Unread</CBadge>}

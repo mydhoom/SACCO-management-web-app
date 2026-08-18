@@ -232,6 +232,26 @@ export default function AiAssistant() {
     }
   }, [isOpen, context, contextLoading, contextError, fetchContext]);
 
+  // Global listener to trigger AI Assistant from Helpdesk or other pages
+  useEffect(() => {
+    const handleOpenAi = (e) => {
+      setIsOpen(true);
+      const query = e.detail?.query;
+      if (query) {
+        setInput(query);
+        setTimeout(() => {
+          inputRef.current?.focus();
+        }, 350);
+      }
+    };
+    window.addEventListener('openAiAssistantWithQuery', handleOpenAi);
+    window.addEventListener('openAiAssistant', handleOpenAi);
+    return () => {
+      window.removeEventListener('openAiAssistantWithQuery', handleOpenAi);
+      window.removeEventListener('openAiAssistant', handleOpenAi);
+    };
+  }, []);
+
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
