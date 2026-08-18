@@ -1,231 +1,207 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   CCard, CCardBody, CCardHeader, CCol, CRow, CButton, CTable,
-  CTableHead, CTableRow, CTableHeaderCell, CTableBody, CTableDataCell, CSpinner,
-  CFormInput, CInputGroup, CInputGroupText
+  CTableHead, CTableRow, CTableHeaderCell, CTableBody, CTableDataCell,
+  CSpinner, CFormInput, CInputGroup, CInputGroupText, CFormSelect,
+  CModal, CModalHeader, CModalTitle, CModalBody, CModalFooter,
+  CBadge, CAlert
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilCloudDownload, cilList } from '@coreui/icons';
+import { cilCloudDownload, cilList, cilSend, cilCheckCircle } from '@coreui/icons';
 
-const DEFAULT_ANNUAL_RATE = 0.10; // 10%
+const DEFAULT_ANNUAL_RATE = 0.10;
 
-/**
- * Helper: format currency INR
- */
 const fmt = (v) => {
   if (typeof v !== 'number' || Number.isNaN(v)) return '₹0';
   return `₹${v.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 };
 
-/**
- * Compute monthly EMI interest/principal split for a single loan
- * - outstandingBalance: current principal outstanding
- * - monthlyEMI: scheduled EMI amount
- * - annualRate: decimal (e.g., 0.10 for 10%)
- *
- * Returns { interestDue, principalDue, totalDue }
- */
-const splitLoanEMI = (outstandingBalance = 0, monthlyEMI = 0, annualRate = DEFAULT_ANNUAL_RATE) => {
-  const monthlyRate = annualRate / 12;
-  const interestDue = outstandingBalance * monthlyRate;
-  const principalDue = Math.max(monthlyEMI - interestDue, 0);
-  const totalDue = principalDue + interestDue;
-  return { interestDue, principalDue, totalDue };
+const MONTHS = [
+  'January','February','March','April','May','June',
+  'July','August','September','October','November','December'
+];
+
+const getNextMonth = () => {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 1);
+  return { month: MONTHS[d.getMonth()], year: d.getFullYear() };
 };
 
-/**
- * Compute RD interest and maturity for monthly deposit P, months n, annualRate r (decimal)
- * interest = P * (r/12) * (n*(n+1)/2)
- * maturity = P * n + interest
- */
-const computeRD = (monthlyDeposit = 0, months = 0, annualRate = DEFAULT_ANNUAL_RATE) => {
-  if (monthlyDeposit <= 0 || months <= 0) return { rdInterest: 0, rdMaturity: 0 };
-  const rMonthly = annualRate / 12;
-  const rdInterest = monthlyDeposit * rMonthly * (months * (months + 1) / 2);
-  const rdMaturity = monthlyDeposit * months + rdInterest;
-  return { rdInterest, rdMaturity };
-};
+const getBatchId = (month, year) =>
+  `DEMAND-PAYROLL-${month.toUpperCase().substring(0, 3)}-${year}`;
 
 const DemandSheet = () => {
-  const [demandData, setDemandData] = useState([]);
+  const [demandData, setDemandData]     = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [annualRate, setAnnualRate] = useState(DEFAULT_ANNUAL_RATE); // decimal
-  const [rdMonths, setRdMonths] = useState(12); // default RD tenure months
+  const [annualRate, setAnnualRate]     = useState(DEFAULT_ANNUAL_RATE);
+
+  // Month/year selectors
+  const next = getNextMonth();
+  const [selectedMonth, setSelectedMonth] = useState(next.month);
+  const [selectedYear,  setSelectedYear]  = useState(next.year);
+
+  // Transfer to Batch modal
+  const [showTransferModal, setShowTransferModal]   = useState(false);
+  const [isTransferring, setIsTransferring]         = useState(false);
+  const [transferResult, setTransferResult]         = useState(null);
+  const [transferError, setTransferError]           = useState('');
 
   const GLOBAL_BACKEND_URL =
     (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) ||
     'http://localhost:5000';
 
+  const token = localStorage.getItem('adminToken') || localStorage.getItem('token');
+
   const fetchDemandSheet = async () => {
     setIsGenerating(true);
+    setTransferResult(null);
+    setTransferError('');
     try {
-      const response = await fetch(`${GLOBAL_BACKEND_URL}/api/loans/generate-demand-sheet`);
-      const result = await response.json();
+      const response = await fetch(`${GLOBAL_BACKEND_URL}/api/demand/generate`);
+      const result   = await response.json();
       if (result.success && Array.isArray(result.data)) {
-        // Normalize and enrich each row with computed splits
-        const enriched = result.data.map((row) => {
-          // Backend expected fields (fallbacks)
-          // row.activeLoans could be an array of loan objects or a comma string; adapt accordingly
-          const activeLoans = Array.isArray(row.activeLoans) ? row.activeLoans : (row.activeLoans ? String(row.activeLoans).split(',') : []);
-          // If backend provides loan objects with outstandingBalance and monthlyEMI, use them
-          let loanPrincipalDue = 0;
-          let loanInterestDue = 0;
-          let loanTotalDue = 0;
-          let activeLoanIds = 'N/A';
-
-          if (Array.isArray(activeLoans) && activeLoans.length > 0) {
-            // If activeLoans are objects
-            if (typeof activeLoans[0] === 'object') {
-              activeLoanIds = activeLoans.map(l => l.loanId || l.id || 'N/A').join(',');
-              activeLoans.forEach((loan) => {
-                const outstanding = Number(loan.outstandingBalance || loan.balance || 0);
-                const emi = Number(loan.monthlyEMI || loan.emi || 0);
-                const { interestDue, principalDue, totalDue } = splitLoanEMI(outstanding, emi, annualRate);
-                loanPrincipalDue += principalDue;
-                loanInterestDue += interestDue;
-                loanTotalDue += totalDue;
-              });
-            } else {
-              // If activeLoans are simple ids and backend provided aggregated fields
-              activeLoanIds = activeLoans.join(',');
-              loanPrincipalDue = Number(row.principalDue || 0);
-              loanInterestDue = Number(row.interestDue || 0);
-              loanTotalDue = Number(row.loanDemand || loanPrincipalDue + loanInterestDue || 0);
-            }
-          } else {
-            // No active loans
-            loanPrincipalDue = Number(row.principalDue || 0);
-            loanInterestDue = Number(row.interestDue || 0);
-            loanTotalDue = Number(row.loanDemand || 0);
-          }
-
-          // RD: if backend provides rdAmount (monthly deposit), compute RD interest & maturity
-          const rdMonthly = Number(row.rdAmount || row.rdMonthly || 0);
-          const { rdInterest, rdMaturity } = computeRD(rdMonthly, Number(row.rdMonths || rdMonths), annualRate);
-
-          return {
-            ...row,
-            activeLoanIds,
-            loanPrincipalDue,
-            loanInterestDue,
-            loanTotalDue,
-            rdMonthly,
-            rdInterest,
-            rdMaturity,
-            // totalDeduction fallback: loanTotalDue + rdMonthly
-            totalDeduction: Number(row.totalDeduction || loanTotalDue + rdMonthly)
-          };
-        });
-        setDemandData(enriched);
+        setDemandData(result.data);
       } else {
         alert(result.message || 'Failed to generate list.');
       }
     } catch (error) {
       console.error('Error fetching demand sheet:', error);
-      alert('Server error.');
+      alert('Server error generating demand sheet.');
     } finally {
       setIsGenerating(false);
     }
   };
 
-  useEffect(() => {
-    // Auto-fetch when the page loads
-    fetchDemandSheet();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useEffect(() => { fetchDemandSheet(); }, []);
 
-  // Derived totals using useMemo
   const totals = useMemo(() => {
-    const totalRD = demandData.reduce((s, r) => s + (Number(r.rdMonthly || 0)), 0);
-    const totalRDInterest = demandData.reduce((s, r) => s + (Number(r.rdInterest || 0)), 0);
+    const totalRD        = demandData.reduce((s, r) => s + (Number(r.rdAmount || 0)), 0);
     const totalPrincipal = demandData.reduce((s, r) => s + (Number(r.loanPrincipalDue || 0)), 0);
-    const totalInterest = demandData.reduce((s, r) => s + (Number(r.loanInterestDue || 0)), 0);
-    const totalLoan = demandData.reduce((s, r) => s + (Number(r.loanTotalDue || 0)), 0);
-    const grand = totalRD + totalLoan;
-    return { totalRD, totalRDInterest, totalPrincipal, totalInterest, totalLoan, grand };
+    const totalInterest  = demandData.reduce((s, r) => s + (Number(r.loanInterestDue || 0)), 0);
+    const totalLoan      = demandData.reduce((s, r) => s + (Number(r.loanTotalDue || 0)), 0);
+    const grand          = totalRD + totalLoan;
+    return { totalRD, totalPrincipal, totalInterest, totalLoan, grand };
   }, [demandData]);
 
-  // CSV Export with breakdown
+  // Year options
+  const currentYear = new Date().getFullYear();
+  const yearOptions = [currentYear - 1, currentYear, currentYear + 1];
+
+  const batchId = getBatchId(selectedMonth, selectedYear);
+
   const exportToCSV = () => {
-    if (demandData.length === 0) {
-      alert('No data to export!');
-      return;
-    }
-
+    if (demandData.length === 0) { alert('No data to export!'); return; }
     const headers = [
-      'Vendor Number', 'Member Name', 'Active Loan IDs',
-      'RD Monthly (Rs)', 'RD Interest Estimate (Rs)', 'RD Maturity Estimate (Rs)',
-      'Loan Principal Due (Rs)', 'Loan Interest Due (Rs)', 'Loan Total Due (Rs)',
-      'Total Deduction (Rs)'
+      'Vendor Number','Member Name','Active Loan IDs',
+      'RD Monthly (Rs)','Loan Principal Due (Rs)','Loan Interest Due (Rs)',
+      'Loan Total Due (Rs)','Total Deduction (Rs)'
     ];
-
     const rows = demandData.map(row => [
       row.vendorNo || '',
       `"${row.memberName || ''}"`,
-      `"${row.activeLoanIds || 'N/A'}"`,
-      Number(row.rdMonthly || 0).toFixed(2),
-      Number(row.rdInterest || 0).toFixed(2),
-      Number(row.rdMaturity || 0).toFixed(2),
+      `"${(row.activeLoanIds || []).join(', ') || 'N/A'}"`,
+      Number(row.rdAmount || 0).toFixed(2),
       Number(row.loanPrincipalDue || 0).toFixed(2),
-      Number(row.loanInterestDue || 0).toFixed(2),
-      Number(row.loanTotalDue || 0).toFixed(2),
-      Number(row.totalDeduction || 0).toFixed(2)
+      Number(row.loanInterestDue  || 0).toFixed(2),
+      Number(row.loanTotalDue     || 0).toFixed(2),
+      Number(row.totalDeduction   || 0).toFixed(2)
     ]);
-
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const csv  = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `HPSEBL_City_Div_Demand_Sheet_NextMonth_with_breakdown.csv`);
+    link.href  = URL.createObjectURL(blob);
+    link.setAttribute('download', `HPSEBL_Demand_Sheet_${selectedMonth}_${selectedYear}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
+  const handleTransferToBatch = async () => {
+    setIsTransferring(true);
+    setTransferError('');
+    try {
+      const resp = await fetch(`${GLOBAL_BACKEND_URL}/api/demand/create-batch`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body:    JSON.stringify({ month: selectedMonth, year: selectedYear, members: demandData })
+      });
+      const data = await resp.json();
+      if (resp.ok && data.success) {
+        setTransferResult(data.data);
+      } else {
+        setTransferError(data.message || 'Failed to create batch.');
+      }
+    } catch (err) {
+      setTransferError('Server error. Please try again.');
+    } finally {
+      setIsTransferring(false);
+    }
+  };
+
   return (
     <CRow>
       <CCol xs={12}>
-        <CCard className="shadow-sm border-top-dark border-top-3">
-          <CCardHeader className="py-3 d-flex justify-content-between align-items-center bg-white">
-            <h4 className="mb-0 d-flex align-items-center gap-2 text-dark">
-              <CIcon icon={cilList} size="lg" />
-              Monthly Demand Recovery List with Breakdown
+        <CCard className="shadow border-top-3" style={{ borderTopColor: '#4361ee' }}>
+          <CCardHeader className="py-3 d-flex justify-content-between align-items-center bg-white flex-wrap gap-2">
+            <h4 className="mb-0 d-flex align-items-center gap-2 text-dark fw-bold">
+              <CIcon icon={cilList} size="lg" style={{ color: '#4361ee' }} />
+              Monthly Demand Recovery List
             </h4>
 
-            <div className="d-flex align-items-center gap-2">
-              <CInputGroup size="sm" className="me-2">
-                <CInputGroupText>Annual Rate %</CInputGroupText>
+            <div className="d-flex align-items-center gap-2 flex-wrap">
+              {/* Month Selector */}
+              <CInputGroup size="sm" style={{ width: 160 }}>
+                <CInputGroupText className="fw-semibold">Month</CInputGroupText>
+                <CFormSelect
+                  value={selectedMonth}
+                  onChange={e => setSelectedMonth(e.target.value)}
+                >
+                  {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
+                </CFormSelect>
+              </CInputGroup>
+
+              {/* Year Selector */}
+              <CInputGroup size="sm" style={{ width: 130 }}>
+                <CInputGroupText className="fw-semibold">Year</CInputGroupText>
+                <CFormSelect
+                  value={selectedYear}
+                  onChange={e => setSelectedYear(Number(e.target.value))}
+                >
+                  {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+                </CFormSelect>
+              </CInputGroup>
+
+              {/* Rate */}
+              <CInputGroup size="sm" style={{ width: 160 }}>
+                <CInputGroupText>Rate %</CInputGroupText>
                 <CFormInput
-                  type="number"
-                  step="0.01"
-                  min="0"
+                  type="number" step="0.01" min="0"
                   value={(annualRate * 100).toFixed(2)}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value || '10') / 100;
-                    setAnnualRate(Number.isFinite(val) ? val : DEFAULT_ANNUAL_RATE);
+                  onChange={e => {
+                    const v = parseFloat(e.target.value || '10') / 100;
+                    setAnnualRate(Number.isFinite(v) ? v : DEFAULT_ANNUAL_RATE);
                   }}
                 />
               </CInputGroup>
 
-              <CInputGroup size="sm" className="me-2">
-                <CInputGroupText>RD Months</CInputGroupText>
-                <CFormInput
-                  type="number"
-                  min="1"
-                  value={rdMonths}
-                  onChange={(e) => setRdMonths(Math.max(1, Number(e.target.value || 12)))}
-                />
-              </CInputGroup>
-
-              <CButton color="primary" className="me-2" onClick={fetchDemandSheet} disabled={isGenerating}>
-                Recalculate
+              <CButton color="primary" size="sm" onClick={fetchDemandSheet} disabled={isGenerating}>
+                {isGenerating ? <CSpinner size="sm" /> : '↻ Recalculate'}
               </CButton>
 
-              <CButton color="success" className="text-white fw-bold shadow-sm" onClick={exportToCSV} disabled={demandData.length === 0}>
-                <CIcon icon={cilCloudDownload} className="me-2" />
-                Export for Payroll
+              <CButton color="success" size="sm" className="text-white" onClick={exportToCSV} disabled={demandData.length === 0}>
+                <CIcon icon={cilCloudDownload} className="me-1" />Export CSV
+              </CButton>
+
+              <CButton
+                size="sm"
+                className="text-white fw-bold"
+                style={{ background: 'linear-gradient(135deg,#4361ee,#7209b7)', border: 'none' }}
+                disabled={demandData.length === 0}
+                onClick={() => { setTransferResult(null); setTransferError(''); setShowTransferModal(true); }}
+              >
+                <CIcon icon={cilSend} className="me-1" />
+                Transfer to Clearance
               </CButton>
             </div>
           </CCardHeader>
@@ -238,62 +214,207 @@ const DemandSheet = () => {
               </div>
             ) : (
               <>
-                <div className="d-flex flex-wrap justify-content-between mb-4 bg-light p-3 rounded border">
-                  <div className="me-3"><strong>Total Expected RD</strong> {fmt(totals.totalRD)}</div>
-                  <div className="me-3"><strong>RD Interest Estimate</strong> {fmt(totals.totalRDInterest)}</div>
-                  <div className="me-3"><strong>Total Principal Due</strong> {fmt(totals.totalPrincipal)}</div>
-                  <div className="me-3"><strong>Total Interest Due</strong> {fmt(totals.totalInterest)}</div>
-                  <div className="text-danger fw-bold fs-5">Total Recovery {fmt(totals.grand)}</div>
+                {/* Summary Banner */}
+                <div className="d-flex flex-wrap gap-3 mb-4 p-3 rounded-3 border"
+                  style={{ background: 'linear-gradient(135deg,#f0f4ff,#faf0ff)' }}>
+                  <div className="d-flex flex-column align-items-center px-3 border-end">
+                    <span className="text-muted small fw-semibold">Members</span>
+                    <span className="fs-4 fw-bold text-dark">{demandData.length}</span>
+                  </div>
+                  <div className="d-flex flex-column align-items-center px-3 border-end">
+                    <span className="text-muted small fw-semibold">Total RD</span>
+                    <span className="fs-5 fw-bold text-primary">{fmt(totals.totalRD)}</span>
+                  </div>
+                  <div className="d-flex flex-column align-items-center px-3 border-end">
+                    <span className="text-muted small fw-semibold">Loan Principal</span>
+                    <span className="fs-5 fw-bold text-info">{fmt(totals.totalPrincipal)}</span>
+                  </div>
+                  <div className="d-flex flex-column align-items-center px-3 border-end">
+                    <span className="text-muted small fw-semibold">Loan Interest</span>
+                    <span className="fs-5 fw-bold text-warning">{fmt(totals.totalInterest)}</span>
+                  </div>
+                  <div className="d-flex flex-column align-items-center px-3">
+                    <span className="text-muted small fw-semibold">Grand Total Recovery</span>
+                    <span className="fs-4 fw-bold text-danger">{fmt(totals.grand)}</span>
+                  </div>
+                  <div className="d-flex align-items-center ms-auto">
+                    <CBadge
+                      style={{ background: 'linear-gradient(135deg,#4361ee,#7209b7)', fontSize: 13 }}
+                      className="px-3 py-2 text-white"
+                    >
+                      Batch ID: {batchId}
+                    </CBadge>
+                  </div>
                 </div>
 
-                <CTable bordered hover responsive align="middle" className="shadow-sm">
-                  <CTableHead color="dark">
-                    <CTableRow>
-                      <CTableHeaderCell>Vendor No.</CTableHeaderCell>
-                      <CTableHeaderCell>Member Name</CTableHeaderCell>
-                      <CTableHeaderCell className="text-end">RD Monthly</CTableHeaderCell>
-                      <CTableHeaderCell className="text-end">RD Interest Est</CTableHeaderCell>
-                      <CTableHeaderCell className="text-end">RD Maturity Est</CTableHeaderCell>
-                      <CTableHeaderCell className="text-end">Loan Principal Due</CTableHeaderCell>
-                      <CTableHeaderCell className="text-end">Loan Interest Due</CTableHeaderCell>
-                      <CTableHeaderCell className="text-end bg-warning text-dark">Total Deduction</CTableHeaderCell>
-                    </CTableRow>
-                  </CTableHead>
-
-                  <CTableBody>
-                    {demandData.length > 0 ? demandData.map((row, index) => (
-                      <CTableRow key={index}>
-                        <CTableDataCell className="fw-bold">{row.vendorNo || '—'}</CTableDataCell>
-                        <CTableDataCell>{row.memberName || '—'}</CTableDataCell>
-
-                        <CTableDataCell className="text-end">{fmt(Number(row.rdMonthly || 0))}</CTableDataCell>
-                        <CTableDataCell className="text-end">{fmt(Number(row.rdInterest || 0))}</CTableDataCell>
-                        <CTableDataCell className="text-end">{fmt(Number(row.rdMaturity || 0))}</CTableDataCell>
-
-                        <CTableDataCell className="text-end">{fmt(Number(row.loanPrincipalDue || 0))}</CTableDataCell>
-                        <CTableDataCell className="text-end">{fmt(Number(row.loanInterestDue || 0))}</CTableDataCell>
-
-                        <CTableDataCell className="text-end fw-bold text-danger bg-light">
-                          {fmt(Number(row.totalDeduction || (Number(row.loanTotalDue || 0) + Number(row.rdMonthly || 0))))}
-                          {row.activeLoanIds && row.activeLoanIds !== 'N/A' && (
-                            <div className="small text-muted">({row.activeLoanIds})</div>
-                          )}
-                        </CTableDataCell>
-                      </CTableRow>
-                    )) : (
+                {/* Table */}
+                <div className="table-responsive rounded-3 border shadow-sm">
+                  <CTable hover align="middle" className="mb-0">
+                    <CTableHead style={{ background: 'linear-gradient(135deg,#1e1e2f,#2d2b55)', color: '#fff' }}>
                       <CTableRow>
-                        <CTableDataCell colSpan="8" className="text-center text-muted py-4">
-                          No active demands found for the upcoming cycle.
-                        </CTableDataCell>
+                        <CTableHeaderCell className="text-white py-3">#</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white">Vendor No.</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white">Member Name</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white text-end">RD Monthly</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white text-end">Loan Principal</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white text-end">Loan Interest</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white text-end">Loan Total</CTableHeaderCell>
+                        <CTableHeaderCell
+                          className="text-end py-3"
+                          style={{ background: '#f72585', color: '#fff' }}
+                        >
+                          Total Deduction
+                        </CTableHeaderCell>
                       </CTableRow>
-                    )}
-                  </CTableBody>
-                </CTable>
+                    </CTableHead>
+                    <CTableBody>
+                      {demandData.length > 0 ? demandData.map((row, index) => (
+                        <CTableRow key={row.vendorNo || index}
+                          style={{ transition: 'background 0.2s' }}
+                          className="demand-row"
+                        >
+                          <CTableDataCell className="text-muted small">{index + 1}</CTableDataCell>
+                          <CTableDataCell className="fw-bold text-primary">{row.vendorNo || '—'}</CTableDataCell>
+                          <CTableDataCell>{row.memberName || '—'}</CTableDataCell>
+                          <CTableDataCell className="text-end">{fmt(Number(row.rdAmount || 0))}</CTableDataCell>
+                          <CTableDataCell className="text-end text-info">{fmt(Number(row.loanPrincipalDue || 0))}</CTableDataCell>
+                          <CTableDataCell className="text-end text-warning">{fmt(Number(row.loanInterestDue || 0))}</CTableDataCell>
+                          <CTableDataCell className="text-end">{fmt(Number(row.loanTotalDue || 0))}</CTableDataCell>
+                          <CTableDataCell className="text-end fw-bold text-danger"
+                            style={{ background: 'rgba(247,37,133,0.06)' }}
+                          >
+                            {fmt(Number(row.totalDeduction || 0))}
+                            {row.activeLoanIds?.length > 0 && (
+                              <div className="small text-muted fw-normal">
+                                Loans: {row.activeLoanIds.join(', ')}
+                              </div>
+                            )}
+                          </CTableDataCell>
+                        </CTableRow>
+                      )) : (
+                        <CTableRow>
+                          <CTableDataCell colSpan="8" className="text-center text-muted py-5">
+                            <CIcon icon={cilList} size="xxl" className="mb-3 opacity-25" /><br />
+                            No active demands found for the upcoming cycle.
+                          </CTableDataCell>
+                        </CTableRow>
+                      )}
+                    </CTableBody>
+                  </CTable>
+                </div>
               </>
             )}
           </CCardBody>
         </CCard>
       </CCol>
+
+      {/* ─── Transfer to Financial Clearance Modal ─── */}
+      <CModal
+        visible={showTransferModal}
+        onClose={() => !isTransferring && setShowTransferModal(false)}
+        size="lg"
+        alignment="center"
+      >
+        <CModalHeader className="py-3" style={{ background: 'linear-gradient(135deg,#4361ee,#7209b7)', color: '#fff' }}>
+          <CModalTitle className="fw-bold text-white d-flex align-items-center gap-2">
+            <CIcon icon={cilSend} /> Transfer to Financial Clearance
+          </CModalTitle>
+        </CModalHeader>
+        <CModalBody className="p-4">
+          {transferResult ? (
+            <CAlert color="success" className="mb-0">
+              <h5 className="fw-bold mb-3">
+                <CIcon icon={cilCheckCircle} className="me-2" />
+                Batch Created Successfully!
+              </h5>
+              <div className="d-flex flex-wrap gap-3 mb-3">
+                <div className="border rounded p-3 text-center flex-grow-1">
+                  <div className="text-muted small">Batch ID</div>
+                  <code className="fs-6 fw-bold">{transferResult.batchId}</code>
+                </div>
+                <div className="border rounded p-3 text-center flex-grow-1">
+                  <div className="text-muted small">Members</div>
+                  <div className="fs-5 fw-bold">{transferResult.totalMembers}</div>
+                </div>
+                <div className="border rounded p-3 text-center flex-grow-1">
+                  <div className="text-muted small">Total RD</div>
+                  <div className="fs-6 fw-bold text-primary">{fmt(transferResult.totalRDAmount)}</div>
+                </div>
+                <div className="border rounded p-3 text-center flex-grow-1">
+                  <div className="text-muted small">Total Loan</div>
+                  <div className="fs-6 fw-bold text-info">{fmt(transferResult.totalLoanAmount)}</div>
+                </div>
+                <div className="border rounded p-3 text-center flex-grow-1">
+                  <div className="text-muted small">Grand Total</div>
+                  <div className="fs-5 fw-bold text-danger">{fmt(transferResult.grandTotalAmount)}</div>
+                </div>
+              </div>
+              <p className="mb-2">
+                Navigate to <strong>Financial Clearances</strong> to clear individual member entries.
+              </p>
+              <a href="#/admin/clearances" className="btn btn-sm btn-outline-primary"
+                onClick={() => setShowTransferModal(false)}
+              >
+                Open Financial Clearances →
+              </a>
+            </CAlert>
+          ) : (
+            <>
+              {transferError && <CAlert color="danger">{transferError}</CAlert>}
+              <p className="mb-3">
+                You are about to transfer the demand recovery list for{' '}
+                <strong>{selectedMonth} {selectedYear}</strong> to Financial Clearances as a batch.
+              </p>
+              <div className="d-flex flex-wrap gap-3 mb-4">
+                <div className="border rounded p-3 text-center flex-grow-1" style={{ background: '#f0f4ff' }}>
+                  <div className="text-muted small">Batch ID</div>
+                  <code className="fw-bold">{batchId}</code>
+                </div>
+                <div className="border rounded p-3 text-center flex-grow-1" style={{ background: '#f0f4ff' }}>
+                  <div className="text-muted small">Members</div>
+                  <div className="fs-5 fw-bold">{demandData.length}</div>
+                </div>
+                <div className="border rounded p-3 text-center flex-grow-1" style={{ background: '#f0f4ff' }}>
+                  <div className="text-muted small">Total RD</div>
+                  <div className="fw-bold text-primary">{fmt(totals.totalRD)}</div>
+                </div>
+                <div className="border rounded p-3 text-center flex-grow-1" style={{ background: '#f0f4ff' }}>
+                  <div className="text-muted small">Total Loan (P+I)</div>
+                  <div className="fw-bold text-info">{fmt(totals.totalLoan)}</div>
+                </div>
+                <div className="border rounded p-3 text-center flex-grow-1" style={{ background: '#fff0f6' }}>
+                  <div className="text-muted small">Grand Total</div>
+                  <div className="fs-5 fw-bold text-danger">{fmt(totals.grand)}</div>
+                </div>
+              </div>
+              <div className="alert alert-info py-2 mb-0 small">
+                <strong>Note:</strong> Financial entries (credits to Loan Principal, Interest & RD) will be
+                posted individually per member upon clearance. A single BRS-only memo entry will be created
+                for bank reconciliation matching — it does <strong>not</strong> affect your financial balances or reports.
+              </div>
+            </>
+          )}
+        </CModalBody>
+        <CModalFooter>
+          {!transferResult && (
+            <CButton
+              className="text-white fw-bold"
+              style={{ background: 'linear-gradient(135deg,#4361ee,#7209b7)', border: 'none' }}
+              onClick={handleTransferToBatch}
+              disabled={isTransferring}
+            >
+              {isTransferring ? <><CSpinner size="sm" className="me-2" />Transferring...</> : '✔ Confirm & Transfer'}
+            </CButton>
+          )}
+          <CButton color="secondary" variant="outline" onClick={() => setShowTransferModal(false)} disabled={isTransferring}>
+            {transferResult ? 'Close' : 'Cancel'}
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
+      <style>{`
+        .demand-row:hover { background: rgba(67, 97, 238, 0.04) !important; }
+      `}</style>
     </CRow>
   );
 };
