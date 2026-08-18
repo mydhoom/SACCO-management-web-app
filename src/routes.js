@@ -39,6 +39,10 @@ const SystemSettings = lazy(() => import('./views/system/SystemSettings'))
 const DatabasePurge = lazy(() => import('./views/admin/DatabasePurge.jsx'))
 const DuplicateReviewQueue = lazy(() => import('./views/admin/DuplicateReviewQueue.jsx'))
 
+// --- Communication & Helpdesk ---
+const AdminCommunicationHub = lazy(() => import('./views/admin/AdminCommunicationHub.jsx'))
+const MemberHelpdesk = lazy(() => import('./views/members/MemberHelpdesk.jsx'))
+
 // --- ROUTES CONFIG ---
 export const routes = [
   { path: '/', exact: true, name: 'Home' },
@@ -84,7 +88,11 @@ export const routes = [
   { path: '/accounting/correction-manager', name: 'Correction Manager', element: CorrectionManager },
 
   // System
-  { path: '/system/settings', name: 'System Settings', element: SystemSettings }
+  { path: '/system/settings', name: 'System Settings', element: SystemSettings },
+
+  // Communication & Helpdesk
+  { path: '/admin/communications', name: 'Communication Hub', element: AdminCommunicationHub },
+  { path: '/helpdesk', name: 'My Helpdesk', element: MemberHelpdesk },
 ]
 
 export default routes

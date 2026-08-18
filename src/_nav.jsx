@@ -5,7 +5,7 @@ import {
   cilDescription, cilSpeedometer, cilBriefcase, cilWallet, cilMoney, 
   cilFolderOpen, cilPeople, cilCloudUpload, cilUserPlus,
   cilBank, cilChartPie, cilCheckCircle, cilSpreadsheet, cilSettings,
-  cilTrash, cilBook, cilPencil, cilWarning
+  cilTrash, cilBook, cilPencil, cilWarning, cilCommentBubble
 } from '@coreui/icons'
 
 const getNavItems = (currentUserRole) => [
@@ -41,7 +41,14 @@ const getNavItems = (currentUserRole) => [
       name: 'Apply for a Loan',
       to: '/my-accounts/loan-calculator',
       icon: <CIcon icon={cilMoney} customClassName="nav-icon" />,
-    }
+    },
+    {
+      component: CNavItem,
+      name: 'Helpdesk & Messages',
+      to: '/helpdesk',
+      icon: <CIcon icon={cilCommentBubble} customClassName="nav-icon" />,
+      badge: { color: 'info', text: 'New' },
+    },
   ] : []),
 
   // ==========================================
@@ -159,7 +166,18 @@ const getNavItems = (currentUserRole) => [
       name: 'Correction Manager',
       to: '/accounting/correction-manager',
       icon: <CIcon icon={cilPencil} customClassName="nav-icon" />,
-    }
+    },
+    {
+      component: CNavTitle,
+      name: 'COMMUNICATION',
+    },
+    {
+      component: CNavItem,
+      name: 'Helpdesk & Queries',
+      to: '/admin/communications',
+      icon: <CIcon icon={cilCommentBubble} customClassName="nav-icon" />,
+      badge: { color: 'danger', text: 'Inbox' },
+    },
   ] : []),
 
   // ==========================================
