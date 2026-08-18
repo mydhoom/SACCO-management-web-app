@@ -29,6 +29,7 @@
     "@coreui/utils": "^2.0.2",
     "@google/genai": "^2.16.0",
     "@popperjs/core": "^2.11.8",
+    "@vercel/analytics": "^2.0.1",
     "axios": "^1.18.1",
     "chart.js": "^4.5.1",
     "chartjs-plugin-datalabels": "^2.2.0",
