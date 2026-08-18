@@ -19,6 +19,7 @@ import { useSelector } from 'react-redux'
 
 import { CSpinner, useColorModes } from '@coreui/react'
 import { Analytics } from '@vercel/analytics/react'
+import { SpeedInsights } from '@vercel/speed-insights/react'
 import './scss/style.scss'
 
 // We use those styles to show code examples, you should remove them in your application.
@@ -98,6 +99,7 @@ const App = () => {
         </Routes>
       </Suspense>
       <Analytics />
+      <SpeedInsights />
     </HashRouter>
   )
 }
