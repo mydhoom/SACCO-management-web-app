@@ -7,7 +7,10 @@ import {
   CBadge, CAlert
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilCloudDownload, cilList, cilSend, cilCheckCircle } from '@coreui/icons';
+import {
+  cilCloudDownload, cilList, cilSend, cilCheckCircle,
+  cilPencil, cilTrash, cilReload, cilSearch, cilX
+} from '@coreui/icons';
 
 const DEFAULT_ANNUAL_RATE = 0.10;
 
@@ -30,10 +33,104 @@ const getNextMonth = () => {
 const getBatchId = (month, year) =>
   `DEMAND-PAYROLL-${month.toUpperCase().substring(0, 3)}-${year}`;
 
+// ─── Edit Demand Member Modal (Pre-Transfer) ──────────────────────────────────
+const EditDemandMemberModal = ({ member, onClose, onSave }) => {
+  const [rdAmount, setRdAmount]                 = useState(member.rdAmount || 0);
+  const [loanPrincipalDue, setLoanPrincipalDue] = useState(member.loanPrincipalDue || 0);
+  const [loanInterestDue, setLoanInterestDue]   = useState(member.loanInterestDue || 0);
+
+  const numRd   = parseFloat(Number(rdAmount || 0).toFixed(2));
+  const numPrin = parseFloat(Number(loanPrincipalDue || 0).toFixed(2));
+  const numInt  = parseFloat(Number(loanInterestDue || 0).toFixed(2));
+  const totalLoan = parseFloat((numPrin + numInt).toFixed(2));
+  const grandTotal = parseFloat((numRd + totalLoan).toFixed(2));
+
+  const handleSave = () => {
+    onSave({
+      ...member,
+      rdAmount: numRd,
+      loanPrincipalDue: numPrin,
+      loanInterestDue: numInt,
+      loanTotalDue: totalLoan,
+      totalDeduction: grandTotal,
+      isCustomEdited: true
+    });
+    onClose();
+  };
+
+  return (
+    <CModal visible onClose={onClose} size="md" alignment="center">
+      <CModalHeader style={{ background: 'linear-gradient(135deg,#4361ee,#7209b7)', color: '#fff' }}>
+        <CModalTitle className="text-white fw-bold d-flex align-items-center gap-2">
+          <CIcon icon={cilPencil} />
+          Edit Demand: {member.memberName} ({member.vendorNo})
+        </CModalTitle>
+      </CModalHeader>
+      <CModalBody className="p-4">
+        <div className="mb-3">
+          <label className="form-label fw-semibold">RD Monthly Deduction (₹)</label>
+          <CFormInput
+            type="number"
+            min="0"
+            step="0.01"
+            value={rdAmount}
+            onChange={e => setRdAmount(e.target.value)}
+          />
+        </div>
+        <div className="mb-3">
+          <label className="form-label fw-semibold">Loan Principal Due (₹)</label>
+          <CFormInput
+            type="number"
+            min="0"
+            step="0.01"
+            value={loanPrincipalDue}
+            onChange={e => setLoanPrincipalDue(e.target.value)}
+          />
+        </div>
+        <div className="mb-3">
+          <label className="form-label fw-semibold">Loan Interest Due (₹)</label>
+          <CFormInput
+            type="number"
+            min="0"
+            step="0.01"
+            value={loanInterestDue}
+            onChange={e => setLoanInterestDue(e.target.value)}
+          />
+        </div>
+
+        <div className="p-3 rounded bg-light border d-flex justify-content-between align-items-center mt-3">
+          <div>
+            <div className="text-muted small">Total Loan (P+I)</div>
+            <strong className="text-info">{fmt(totalLoan)}</strong>
+          </div>
+          <div className="text-end">
+            <div className="text-muted small">Revised Total Deduction</div>
+            <strong className="text-danger fs-5">{fmt(grandTotal)}</strong>
+          </div>
+        </div>
+      </CModalBody>
+      <CModalFooter>
+        <CButton
+          style={{ background: 'linear-gradient(135deg,#4361ee,#7209b7)', border: 'none' }}
+          className="text-white fw-bold"
+          onClick={handleSave}
+        >
+          Apply Changes
+        </CButton>
+        <CButton color="secondary" variant="outline" onClick={onClose}>
+          Cancel
+        </CButton>
+      </CModalFooter>
+    </CModal>
+  );
+};
+
 const DemandSheet = () => {
   const [demandData, setDemandData]     = useState([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [annualRate, setAnnualRate]     = useState(DEFAULT_ANNUAL_RATE);
+  const [search, setSearch]             = useState('');
+  const [editingMember, setEditingMember] = useState(null);
 
   // Month/year selectors
   const next = getNextMonth();
@@ -82,6 +179,25 @@ const DemandSheet = () => {
     const grand          = totalRD + totalLoan;
     return { totalRD, totalPrincipal, totalInterest, totalLoan, grand };
   }, [demandData]);
+
+  const filteredData = useMemo(() => {
+    if (!search) return demandData;
+    const q = search.toLowerCase();
+    return demandData.filter(r =>
+      (r.memberName && r.memberName.toLowerCase().includes(q)) ||
+      (r.vendorNo && r.vendorNo.toLowerCase().includes(q))
+    );
+  }, [demandData, search]);
+
+  const handleUpdateMember = (updatedMember) => {
+    setDemandData(prev => prev.map(m => m.vendorNo === updatedMember.vendorNo ? updatedMember : m));
+  };
+
+  const handleRemoveMember = (vendorNo) => {
+    if (window.confirm(`Are you sure you want to remove ${vendorNo} from this demand recovery sheet?`)) {
+      setDemandData(prev => prev.filter(m => m.vendorNo !== vendorNo));
+    }
+  };
 
   // Year options
   const currentYear = new Date().getFullYear();
@@ -185,8 +301,8 @@ const DemandSheet = () => {
                 />
               </CInputGroup>
 
-              <CButton color="primary" size="sm" onClick={fetchDemandSheet} disabled={isGenerating}>
-                {isGenerating ? <CSpinner size="sm" /> : '↻ Recalculate'}
+              <CButton color="primary" variant="outline" size="sm" onClick={fetchDemandSheet} disabled={isGenerating}>
+                {isGenerating ? <CSpinner size="sm" /> : <><CIcon icon={cilReload} className="me-1" />Reset / Reload</>}
               </CButton>
 
               <CButton color="success" size="sm" className="text-white" onClick={exportToCSV} disabled={demandData.length === 0}>
@@ -247,6 +363,26 @@ const DemandSheet = () => {
                   </div>
                 </div>
 
+                {/* Search Bar & Table Header */}
+                <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                  <div className="small text-muted">
+                    💡 <em>You can edit or exclude any member deduction directly in this table before transferring.</em>
+                  </div>
+                  <CInputGroup size="sm" style={{ maxWidth: 280 }}>
+                    <CInputGroupText><CIcon icon={cilSearch} /></CInputGroupText>
+                    <CFormInput
+                      placeholder="Search member or vendor no..."
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                    />
+                    {search && (
+                      <CButton color="secondary" variant="outline" onClick={() => setSearch('')}>
+                        <CIcon icon={cilX} />
+                      </CButton>
+                    )}
+                  </CInputGroup>
+                </div>
+
                 {/* Table */}
                 <div className="table-responsive rounded-3 border shadow-sm">
                   <CTable hover align="middle" className="mb-0">
@@ -265,16 +401,27 @@ const DemandSheet = () => {
                         >
                           Total Deduction
                         </CTableHeaderCell>
+                        <CTableHeaderCell className="text-white text-center">Action</CTableHeaderCell>
                       </CTableRow>
                     </CTableHead>
                     <CTableBody>
-                      {demandData.length > 0 ? demandData.map((row, index) => (
+                      {filteredData.length > 0 ? filteredData.map((row, index) => (
                         <CTableRow key={row.vendorNo || index}
-                          style={{ transition: 'background 0.2s' }}
+                          style={{
+                            transition: 'background 0.2s',
+                            background: row.isCustomEdited ? 'rgba(255, 183, 3, 0.08)' : undefined
+                          }}
                           className="demand-row"
                         >
                           <CTableDataCell className="text-muted small">{index + 1}</CTableDataCell>
-                          <CTableDataCell className="fw-bold text-primary">{row.vendorNo || '—'}</CTableDataCell>
+                          <CTableDataCell className="fw-bold text-primary">
+                            {row.vendorNo || '—'}
+                            {row.isCustomEdited && (
+                              <CBadge color="warning" className="ms-1" size="sm" title="Manually Adjusted">
+                                Edited
+                              </CBadge>
+                            )}
+                          </CTableDataCell>
                           <CTableDataCell>{row.memberName || '—'}</CTableDataCell>
                           <CTableDataCell className="text-end">{fmt(Number(row.rdAmount || 0))}</CTableDataCell>
                           <CTableDataCell className="text-end text-info">{fmt(Number(row.loanPrincipalDue || 0))}</CTableDataCell>
@@ -290,12 +437,34 @@ const DemandSheet = () => {
                               </div>
                             )}
                           </CTableDataCell>
+                          <CTableDataCell className="text-center">
+                            <div className="d-flex gap-1 justify-content-center">
+                              <CButton
+                                color="info"
+                                size="sm"
+                                className="text-white px-2"
+                                title="Edit Amount"
+                                onClick={() => setEditingMember(row)}
+                              >
+                                <CIcon icon={cilPencil} />
+                              </CButton>
+                              <CButton
+                                color="danger"
+                                size="sm"
+                                className="text-white px-2"
+                                title="Remove from Demand"
+                                onClick={() => handleRemoveMember(row.vendorNo)}
+                              >
+                                <CIcon icon={cilTrash} />
+                              </CButton>
+                            </div>
+                          </CTableDataCell>
                         </CTableRow>
                       )) : (
                         <CTableRow>
-                          <CTableDataCell colSpan="8" className="text-center text-muted py-5">
+                          <CTableDataCell colSpan="9" className="text-center text-muted py-5">
                             <CIcon icon={cilList} size="xxl" className="mb-3 opacity-25" /><br />
-                            No active demands found for the upcoming cycle.
+                            {search ? 'No members match your search filter.' : 'No active demands found for the upcoming cycle.'}
                           </CTableDataCell>
                         </CTableRow>
                       )}
@@ -307,6 +476,15 @@ const DemandSheet = () => {
           </CCardBody>
         </CCard>
       </CCol>
+
+      {/* ─── Edit Modal (Pre-Transfer) ─── */}
+      {editingMember && (
+        <EditDemandMemberModal
+          member={editingMember}
+          onClose={() => setEditingMember(null)}
+          onSave={handleUpdateMember}
+        />
+      )}
 
       {/* ─── Transfer to Financial Clearance Modal ─── */}
       <CModal
