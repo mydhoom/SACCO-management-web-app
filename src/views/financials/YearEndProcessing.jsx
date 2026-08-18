@@ -3,6 +3,7 @@ import {
   CCard, CCardBody, CCardHeader, CCol, CRow, CButton, CFormInput, CFormSelect,
   CAlert, CSpinner, CTable, CTableHead, CTableRow, CTableHeaderCell, CTableBody, CTableDataCell
 } from '@coreui/react'
+import { API_BASE_URL } from '../../apiConfig'
 
 const YearEndProcessing = () => {
   const [engineType, setEngineType] = useState('dividend')
@@ -37,7 +38,7 @@ const YearEndProcessing = () => {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token') // Added fallback token check
       
       // The 's' automatically pluralizes to 'dividends', 'incentives', or 'interests'
-      const response = await fetch(`http://localhost:5000/api/${engineType}s/draft?${queryParams.toString()}`, {
+      const response = await fetch(`${API_BASE_URL}/api/${engineType}s/draft?${queryParams.toString()}`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -70,7 +71,7 @@ const YearEndProcessing = () => {
 
     try {
       const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
-      const response = await fetch(`http://localhost:5000/api/${engineType}s/process`, {
+      const response = await fetch(`${API_BASE_URL}/api/${engineType}s/process`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

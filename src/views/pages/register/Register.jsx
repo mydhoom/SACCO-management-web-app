@@ -16,6 +16,7 @@ import {
 } from '@coreui/react'
 import CIcon from '@coreui/icons-react'
 import { cilLockLocked, cilUser, cilBriefcase, cilInfo } from '@coreui/icons'
+import { API_BASE_URL } from '../../../apiConfig'
 
 const Register = () => {
   const navigate = useNavigate()
@@ -51,7 +52,7 @@ const Register = () => {
 
     try {
       // 2. Send the actual data to your backend API
-      const response = await fetch('http://localhost:5000/api/auth/register', {
+      const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

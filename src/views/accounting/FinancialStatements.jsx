@@ -6,6 +6,7 @@ import {
 } from '@coreui/react'
 import CIcon from '@coreui/icons-react'
 import { cilSpreadsheet, cilPrint } from '@coreui/icons'
+import { API_BASE_URL } from '../../apiConfig'
 
 const FinancialStatements = () => {
   const [statementType, setStatementType] = useState('TRIAL_BALANCE')
@@ -23,7 +24,7 @@ const FinancialStatements = () => {
     
     if (statementType === 'TRIAL_BALANCE') {
       try {
-        const response = await fetch('http://localhost:5000/api/transactions', {
+        const response = await fetch(`${API_BASE_URL}/api/transactions`, {
           headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
         })
         const data = await response.json()

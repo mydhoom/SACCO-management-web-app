@@ -15,6 +15,7 @@ import {
 } from '@coreui/react'
 import CIcon from '@coreui/icons-react'
 import { cilLockLocked } from '@coreui/icons'
+import { API_BASE_URL } from '../../../apiConfig'
 
 const SetupPassword = () => {
   const [newPassword, setNewPassword] = useState('')
@@ -37,7 +38,7 @@ const SetupPassword = () => {
       const token = localStorage.getItem('token');
 
       // 2. Send the new password and the token to the backend
-      const response = await fetch('http://localhost:5000/api/auth/setup-password', {
+      const response = await fetch(`${API_BASE_URL}/api/auth/setup-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

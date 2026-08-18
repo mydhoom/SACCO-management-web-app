@@ -11,6 +11,7 @@ import {
   generateTrialBalance, exportTrialBalanceExcel, exportTrialBalancePDF,
   generatePnLReport, exportPnLExcel, exportPnLPDF
 } from '../../utils/auditReportEngine'
+import { API_BASE_URL } from '../../apiConfig'
 
 const ReportsGeneration = () => {
   const [transactions, setTransactions] = useState([])
@@ -54,7 +55,7 @@ const ReportsGeneration = () => {
 
   const fetchTransactions = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/transactions', {
+      const response = await fetch(`${API_BASE_URL}/api/transactions`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
       })
       if (!response.ok) throw new Error("Failed to fetch ledger")

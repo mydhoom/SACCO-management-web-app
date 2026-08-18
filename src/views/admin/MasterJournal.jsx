@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { generatePDF } from '../../utils/pdfGenerator';
+import { API_BASE_URL } from '../../apiConfig';
 import React, { useState, useEffect } from 'react'
 import {
   CCard, CCardBody, CCardHeader, CCol, CRow, CTable, CTableBody,
@@ -50,7 +51,7 @@ const MasterJournal = () => {
   const fetchTransactions = async () => {
     setLoading(true)
     try {
-      const response = await fetch('http://localhost:5000/api/transactions', {
+      const response = await fetch(`${API_BASE_URL}/api/transactions`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
       })
       if (!response.ok) throw new Error("Failed to fetch ledger")
@@ -67,7 +68,7 @@ const MasterJournal = () => {
     e.preventDefault()
     setSubmitting(true)
     try {
-      const response = await fetch('http://localhost:5000/api/transactions', {
+      const response = await fetch(`${API_BASE_URL}/api/transactions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

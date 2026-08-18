@@ -11,6 +11,7 @@ import { cilSearch, cilSpreadsheet, cilPrint, cilUser, cilPencil, cilTrash, cilU
 import * as XLSX from 'xlsx'
 import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
+import { API_BASE_URL } from '../../apiConfig'
 
 const SocietyDirectory = () => {
   // State Management
@@ -34,7 +35,7 @@ const SocietyDirectory = () => {
   useEffect(() => {
     const fetchMembers = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/members', {
+        const response = await fetch(`${API_BASE_URL}/api/members`, {
           headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
         })
         const data = await response.json()
@@ -62,7 +63,7 @@ const SocietyDirectory = () => {
   const handleAddMember = async () => {
     setIsSaving(true)
     try {
-      const response = await fetch('http://localhost:5000/api/members', {
+      const response = await fetch(`${API_BASE_URL}/api/members`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` },
         body: JSON.stringify({ ...addFormData, status: 'approved' })
@@ -87,7 +88,7 @@ const SocietyDirectory = () => {
   const handleEditMember = async () => {
     setIsSaving(true)
     try {
-      const response = await fetch(`http://localhost:5000/api/members/${editFormData.id}`, {
+      const response = await fetch(`${API_BASE_URL}/api/members/${editFormData.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` },
         body: JSON.stringify(editFormData)
@@ -108,7 +109,7 @@ const SocietyDirectory = () => {
   // Delete Member
   const handleDeleteMember = async (id, name) => {
     if (!window.confirm(`Permanently delete ${name}?`)) return
-    const response = await fetch(`http://localhost:5000/api/members/${id}`, {
+    const response = await fetch(`${API_BASE_URL}/api/members/${id}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
     })
