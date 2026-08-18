@@ -35,12 +35,19 @@ connectDB();
 const app = express();
 
 // ==========================================
-// 1. SECURITY & GLOBAL MIDDLEWARES
-// ==========================================
-// Helmet goes first to immediately set secure HTTP headers
-app.use(helmet()); 
-// CORS allows your React frontend to communicate with this backend
-app.use(cors()); 
+// 1. CORS allows your React frontend on Vercel to communicate with this backend
+app.use(cors({
+  origin: true,
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"]
+}));
+app.options("*", cors());
+
+// 2. Helmet for security headers (configured for cross-origin API access)
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+})); 
 // Morgan logs incoming requests to your terminal for debugging
 app.use(morgan("dev")); 
 // BodyParser allows Express to read JSON data from the frontend (50MB limit for ID Card OCR images)
