@@ -610,20 +610,27 @@ export const generatePnLReport = (transactions, timeframeType, selectedMonth, se
     const isCredit = tx.entryType === 'CREDIT';
     const isDebit = tx.entryType === 'DEBIT';
 
-    // ── INCOME (Credit Side) ──
-    if (cat.includes('ADMISSION') || cat.includes('ADMISSION_FEE') || cat.includes('ENTRY_FEE')) {
+    // ── INCOME (Credit Side only — entryType guards prevent reversals from inflating income) ──
+    if (isCredit && (cat.includes('ADMISSION') || cat === 'ADMISSION_FEE' || cat.includes('ENTRY_FEE'))) {
+      // FIX #3: Added isCredit guard — refunded admission fees (DEBIT) no longer inflate income
       income.admissionFees += amount;
       monthlyBreakdown[monthKey].income += amount;
-    } else if (cat.includes('BANK_INTEREST') || cat.includes('FD_INTEREST') || cat.includes('SAVINGS_INTEREST_RECEIVED')) {
+    } else if (isCredit && (cat.includes('BANK_INTEREST') || cat.includes('FD_INTEREST') || cat.includes('SAVINGS_INTEREST_RECEIVED'))) {
       income.bankInterest += amount;
       monthlyBreakdown[monthKey].income += amount;
-    } else if (cat.includes('PENAL') || cat.includes('PENALTY') || cat.includes('LATE_FEE')) {
+    } else if (isCredit && (cat === 'PENALTY' || cat.includes('PENAL') || cat.includes('LATE_FEE') || (folio === '157' && (cat.includes('PENAL') || cat.includes('PENALTY') || cat.includes('LATE_FEE'))))) {
+      // FIX #2: Added folio 157 fallback for PENALTY entries stored by folio not category keyword
       income.penalCharges += amount;
       monthlyBreakdown[monthKey].income += amount;
-    } else if (folio === '153' || cat === 'INTEREST_INCOME' || cat.includes('LOAN_INTEREST') || cat.includes('INTEREST ON LOAN')) {
+    } else if (isCredit && (folio === '153' || cat === 'INTEREST_INCOME' || cat === 'LOAN_INTEREST' || cat.includes('INTEREST ON LOAN'))) {
+      // FIX #2: Added isCredit guard — a reversal DEBIT on folio 153 no longer inflates income
       income.loanInterest += amount;
       monthlyBreakdown[monthKey].income += amount;
-    } else if (cat.includes('MISC_INCOME') || cat.includes('DIVIDEND_INCOME')) {
+    } else if (isCredit && (cat === 'MISC_INCOME' || cat.includes('DIVIDEND_INCOME'))) {
+      income.miscIncome += amount;
+      monthlyBreakdown[monthKey].income += amount;
+    } else if (isCredit && folio !== '101' && folio !== '152' && folio !== '154' && folio !== '155' && folio !== '156' && folio !== '158' && folio !== '159' && folio !== '160') {
+      // Catch-all: unclassified credit transactions that aren't balance-sheet items go to Misc Income
       income.miscIncome += amount;
       monthlyBreakdown[monthKey].income += amount;
     }
@@ -631,27 +638,30 @@ export const generatePnLReport = (transactions, timeframeType, selectedMonth, se
     // New loan disbursement tracking (for 5% statutory bad debt provision)
     if (folio === '152' && isDebit) {
       totalNewLoans += amount;
-    } else if (cat === 'LOAN_DISBURSEMENT') {
+    } else if (cat === 'LOAN_DISBURSEMENT' && isDebit) {
       totalNewLoans += amount;
     }
 
-    // ── EXPENDITURE (Debit Side) ──
-    if (folio === '154' || cat.includes('RD_INTEREST') || cat.includes('MEMBER_INTEREST') || cat.includes('DIVIDEND_PAYOUT')) {
+    // ── EXPENDITURE (Debit Side only — entryType guards prevent member deposits from inflating expenses) ──
+    if (isDebit && (folio === '154' || cat === 'RD_INTEREST' || cat === 'MEMBER_INTEREST' || cat === 'DIVIDEND_PAYOUT')) {
+      // FIX #1: Added isDebit guard — member RD deposits (CREDIT on 154) are liabilities, NOT expenses;
+      //          only interest/dividend paid OUT (DEBIT) should appear as expenditure.
       expense.savingsInterest += amount;
       monthlyBreakdown[monthKey].expense += amount;
-    } else if (cat.includes('BANK_CHARGE') || cat.includes('BANK CHARGE') || cat.includes('BANK_CHARGES') || cat.includes('UPI_CHARGE')) {
+    } else if (isDebit && (cat.includes('BANK_CHARGE') || cat.includes('BANK CHARGE') || cat.includes('BANK_CHARGES') || cat.includes('UPI_CHARGE'))) {
       expense.bankCharges += amount;
       monthlyBreakdown[monthKey].expense += amount;
-    } else if (cat.includes('AUDIT') || cat.includes('AUDIT_FEE') || cat.includes('LEGAL')) {
+    } else if (isDebit && (cat === 'AUDIT_FEE' || cat.includes('AUDIT') || cat.includes('LEGAL'))) {
       expense.auditFees += amount;
       monthlyBreakdown[monthKey].expense += amount;
-    } else if (cat.includes('OFFICE') || cat.includes('STATIONERY') || cat.includes('STATIONARY_MISC') || cat.includes('PRINTING')) {
+    } else if (isDebit && (cat === 'STATIONARY_MISC' || cat.includes('OFFICE') || cat.includes('STATIONERY') || cat.includes('PRINTING'))) {
       expense.officeExpense += amount;
       monthlyBreakdown[monthKey].expense += amount;
-    } else if (cat.includes('IT') || cat.includes('SOFTWARE') || cat.includes('HOSTING') || cat.includes('DOMAIN') || cat.includes('CLOUD')) {
+    } else if (isDebit && (cat === 'IT_EXPENSE' || cat === 'SOFTWARE_EXPENSE' || cat.includes('SOFTWARE') || cat.includes('HOSTING') || cat.includes('DOMAIN') || cat.includes('CLOUD'))) {
+      // FIX #4: Removed bare cat.includes('IT') to prevent matching MONTHLY_THRIFT, BANK_CREDIT, etc.
       expense.itExpense += amount;
       monthlyBreakdown[monthKey].expense += amount;
-    } else if (cat.includes('HONORARIUM') || cat.includes('SALARY') || cat.includes('ALLOWANCE')) {
+    } else if (isDebit && (cat === 'HONORARIUM' || cat.includes('SALARY') || cat.includes('ALLOWANCE'))) {
       expense.honorarium += amount;
       monthlyBreakdown[monthKey].expense += amount;
     }
@@ -674,7 +684,20 @@ export const generatePnLReport = (transactions, timeframeType, selectedMonth, se
     ? grossSurplus - appropriations.statutoryReserve - appropriations.dividendEqualization - appropriations.commonGoodFund
     : grossSurplus;
 
-  // Build monthly surplus
+  // FIX #8: Apportion bad debt provision across months so Monthly Trend surplus reconciles with the Summary sheet.
+  // Distribute proportionally by each month's share of income; fall back to equal split if no income.
+  const monthKeys = Object.keys(monthlyBreakdown);
+  if (monthKeys.length > 0 && expense.badDebtProvision > 0) {
+    const monthlyTotalIncome = monthKeys.reduce((sum, k) => sum + monthlyBreakdown[k].income, 0);
+    monthKeys.forEach(key => {
+      const share = monthlyTotalIncome > 0
+        ? monthlyBreakdown[key].income / monthlyTotalIncome
+        : 1 / monthKeys.length;
+      monthlyBreakdown[key].expense += Math.round(expense.badDebtProvision * share);
+    });
+  }
+
+  // Build monthly surplus (after bad debt apportionment)
   Object.keys(monthlyBreakdown).forEach(key => {
     monthlyBreakdown[key].surplus = monthlyBreakdown[key].income - monthlyBreakdown[key].expense;
   });

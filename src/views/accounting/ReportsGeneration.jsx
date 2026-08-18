@@ -17,29 +17,36 @@ const ReportsGeneration = () => {
   const [loadingTx, setLoadingTx] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
 
+  // Computes the current Indian fiscal year (Apr–Mar) dynamically
+  const currentFY = () => {
+    const now = new Date();
+    const yr = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+    return `${yr}-${yr + 1}`;
+  };
+
   // Settings for Loan/RD Report
   const [timeframeType, setTimeframeType] = useState('MONTHLY') // 'MONTHLY' or 'YEARLY'
   const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString())
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString())
-  const [selectedFY, setSelectedFY] = useState('2024-2025')
+  const [selectedFY, setSelectedFY] = useState(currentFY())
 
   // Settings for P&L Report
   const [pnlTimeframeType, setPnlTimeframeType] = useState('MONTHLY')
   const [pnlSelectedMonth, setPnlSelectedMonth] = useState((new Date().getMonth() + 1).toString())
   const [pnlSelectedYear, setPnlSelectedYear] = useState(new Date().getFullYear().toString())
-  const [pnlSelectedFY, setPnlSelectedFY] = useState('2024-2025')
+  const [pnlSelectedFY, setPnlSelectedFY] = useState(currentFY())
 
   // Settings for Trial Balance Report
   const [tbTimeframeType, setTbTimeframeType] = useState('MONTHLY') 
   const [tbSelectedMonth, setTbSelectedMonth] = useState((new Date().getMonth() + 1).toString())
   const [tbSelectedYear, setTbSelectedYear] = useState(new Date().getFullYear().toString())
-  const [tbSelectedFY, setTbSelectedFY] = useState('2024-2025')
+  const [tbSelectedFY, setTbSelectedFY] = useState(currentFY())
 
   // Settings for RD Report
   const [rdTimeframeType, setRdTimeframeType] = useState('MONTHLY') 
   const [rdSelectedMonth, setRdSelectedMonth] = useState((new Date().getMonth() + 1).toString())
   const [rdSelectedYear, setRdSelectedYear] = useState(new Date().getFullYear().toString())
-  const [rdSelectedFY, setRdSelectedFY] = useState('2024-2025')
+  const [rdSelectedFY, setRdSelectedFY] = useState(currentFY())
 
   useEffect(() => {
     fetchTransactions()
@@ -474,18 +481,38 @@ const ReportsGeneration = () => {
               <CButton color="success" className="text-white fw-bold shadow-sm"
                 onClick={async () => {
                   setIsGenerating(true)
-                  const pnl = generatePnLReport(transactions, pnlTimeframeType, pnlSelectedMonth, pnlSelectedYear, pnlSelectedFY)
-                  exportPnLExcel(pnl, pnlTimeframeType, pnlSelectedFY, pnlSelectedMonth, pnlSelectedYear)
-                  setIsGenerating(false)
+                  try {
+                    const pnl = generatePnLReport(transactions, pnlTimeframeType, pnlSelectedMonth, pnlSelectedYear, pnlSelectedFY)
+                    if (pnl.totalIncome === 0 && pnl.totalExpense === 0) {
+                      alert('No P&L transactions found for the selected period. Please verify the date range or load real transaction data.')
+                      return
+                    }
+                    exportPnLExcel(pnl, pnlTimeframeType, pnlSelectedFY, pnlSelectedMonth, pnlSelectedYear)
+                  } catch (e) {
+                    console.error(e)
+                    alert('Error generating P&L Excel')
+                  } finally {
+                    setIsGenerating(false)
+                  }
                 }} disabled={loadingTx || isGenerating}>
                 {isGenerating ? <CSpinner size="sm" /> : <><CIcon icon={cilCloudDownload} className="me-2"/>Download P&L Excel</>}
               </CButton>
               <CButton color="danger" className="text-white fw-bold shadow-sm"
                 onClick={async () => {
                   setIsGenerating(true)
-                  const pnl = generatePnLReport(transactions, pnlTimeframeType, pnlSelectedMonth, pnlSelectedYear, pnlSelectedFY)
-                  await exportPnLPDF(pnl)
-                  setIsGenerating(false)
+                  try {
+                    const pnl = generatePnLReport(transactions, pnlTimeframeType, pnlSelectedMonth, pnlSelectedYear, pnlSelectedFY)
+                    if (pnl.totalIncome === 0 && pnl.totalExpense === 0) {
+                      alert('No P&L transactions found for the selected period. Please verify the date range or load real transaction data.')
+                      return
+                    }
+                    await exportPnLPDF(pnl)
+                  } catch (e) {
+                    console.error(e)
+                    alert('Error generating P&L PDF')
+                  } finally {
+                    setIsGenerating(false)
+                  }
                 }} disabled={loadingTx || isGenerating}>
                 <CIcon icon={cilFile} className="me-2"/>Download P&L PDF
               </CButton>

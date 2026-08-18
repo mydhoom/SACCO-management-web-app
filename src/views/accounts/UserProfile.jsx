@@ -101,17 +101,56 @@ export default function UserProfile() {
           const u = data.user || data
           setFormData((prev) => ({
             ...prev,
-            name: u.name || '', phone: u.phone || '', address: u.address || '',
-            designation: u.designation || '', circle: u.circle || '',
-            division: u.division || '', subDivision: u.subDivision || '',
-            bankName: u.bankName || '', branchName: u.branchName || '',
-            accountNumber: u.accountNumber || '', ifscCode: u.ifscCode || '',
-            email: u.email || '', employeeNo: u.vendorNo || '',
+            name: u.name || '',
+            fatherName: u.fatherName || '',
+            dob: u.dob ? new Date(u.dob).toISOString().split('T')[0] : '',
+            gender: u.gender || '',
+            bloodGroup: u.bloodGroup || '',
+            phone: u.phone || u.phoneNumber || '',
+            alternatePhone: u.alternatePhone || '',
+            email: u.email || u.emailId || '',
+            address: u.address || '',
+            permanentAddress: u.permanentAddress || '',
+            // KYC — mask Aadhaar if full 12 digits are stored
+            aadhaarNo: u.aadhaarNo
+              ? (u.aadhaarNo.replace(/\D/g, '').length === 12
+                  ? '****-****-' + u.aadhaarNo.slice(-4)
+                  : u.aadhaarNo)
+              : (u.aadharNumber
+                  ? (u.aadharNumber.replace(/\D/g, '').length === 12
+                      ? '****-****-' + u.aadharNumber.slice(-4)
+                      : u.aadharNumber)
+                  : ''),
+            panNo: u.panNo || u.panNumber || '',
+            voterIdNo: u.voterIdNo || '',
+            kycVerified: u.kycVerified || false,
+            // Employment
+            employeeNo: u.vendorNo || '',
+            designation: u.designation || '',
+            circle: u.circle || '',
+            division: u.division || '',
+            subDivision: u.subDivision || '',
+            officeLocation: u.officeLocation || '',
+            joiningDate: u.joiningDate ? new Date(u.joiningDate).toISOString().split('T')[0]
+              : (u.dateOfJoining ? new Date(u.dateOfJoining).toISOString().split('T')[0] : ''),
+            retirementDate: u.retirementDate ? new Date(u.retirementDate).toISOString().split('T')[0]
+              : (u.dateOfRetirement ? new Date(u.dateOfRetirement).toISOString().split('T')[0] : ''),
+            // Membership
             membershipId: u.membershipId || '',
-            aadhaarNo: u.aadhaarNo ? '****-****-' + u.aadhaarNo.slice(-4) : '',
-            panNo: u.panNo || '', kycVerified: u.kycVerified || false,
-            nomineeName: u.nomineeName || '', nomineeRelation: u.nomineeRelation || '',
-            nomineeContact: u.nomineeContact || '',
+            admissionDate: u.admissionDate ? new Date(u.admissionDate).toISOString().split('T')[0] : '',
+            sharesCount: u.sharesCount || '',
+            shareValue: u.shareValue || '',
+            // Nominee
+            nomineeName: u.nomineeName || '',
+            nomineeRelation: u.nomineeRelation || u.nomineeRelationship || '',
+            nomineeContact: u.nomineeContact || u.nomineePhone || '',
+            nomineeAadhaar: u.nomineeAadhaar || '',
+            // Banking
+            bankName: u.bankName || '',
+            branchName: u.branchName || '',
+            accountNumber: u.accountNumber || u.bankAccountNumber || '',
+            ifscCode: u.ifscCode || '',
+            upiId: u.upiId || '',
           }))
           if (u.profilePictureUrl) setPreviewPhoto(u.profilePictureUrl)
         }
@@ -206,7 +245,7 @@ export default function UserProfile() {
         const cd = await cr.json()
         if (cd.secure_url) finalImageUrl = cd.secure_url
       }
-      const token = localStorage.getItem('token')
+      const token = localStorage.getItem('adminToken') || localStorage.getItem('token')
       const payload = { ...formData, profilePictureUrl: finalImageUrl }
       const res = await fetch(`${API_BASE_URL}/api/auth/profile/update`, {
         method: 'PUT',
@@ -434,7 +473,7 @@ export default function UserProfile() {
                     <h5 className="fw-bold mb-4 border-bottom pb-2">👤 Personal Information</h5>
                     <CRow className="g-3">
                       {[
-                        { label: 'Full Name', key: 'name', placeholder: 'As per official records', editable: isAdmin },
+                        { label: 'Full Name', key: 'name', placeholder: 'As per official records', editable: true },
                         { label: "Father's / Husband's Name", key: 'fatherName', placeholder: 'Father or husband name' },
                         { label: 'Date of Birth', key: 'dob', type: 'date' },
                         { label: 'Gender', key: 'gender', type: 'select', options: ['', 'Male', 'Female', 'Other'] },

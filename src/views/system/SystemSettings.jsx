@@ -250,10 +250,16 @@ export default function SystemSettings() {
                       onChange={(e) => handleChange('activeFinancialYear', e.target.value)}
                       className="shadow-none"
                     >
-                      <option value="2023-2024">FY 2023–2024</option>
-                      <option value="2024-2025">FY 2024–2025</option>
-                      <option value="2025-2026">FY 2025–2026</option>
-                      <option value="2026-2027">FY 2026–2027</option>
+                      {(() => {
+                        const now = new Date();
+                        const currentFYStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+                        return Array.from({ length: 6 }, (_, i) => {
+                          const yr = currentFYStart - 2 + i;
+                          return (
+                            <option key={yr} value={`${yr}-${yr + 1}`}>FY {yr}–{yr + 1}</option>
+                          );
+                        });
+                      })()}
                     </CFormSelect>
                   </CCol>
                 </CRow>

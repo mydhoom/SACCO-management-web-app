@@ -89,23 +89,23 @@ const UpdateData = () => {
   const [isDuplicateChecking, setIsDuplicateChecking] = useState(false)
   const [duplicateFlags, setDuplicateFlags] = useState([])
 
-  // --- TEMPLATE GENERATOR ---
   const downloadTemplate = (type, templateName) => {
-    let csvContent = "data:text/csv;charset=utf-8,\n"
+    // Wrap each value in quotes to handle commas in sample data safely
+    const q = (val) => `"${val}"`
     let headers = Object.keys(SCHEMAS[type]).join(",")
     let sampleRow = ""
 
     if (type === 'master') {
-      sampleRow = "1045,S-1045,Amit Kumar,Foreman,9876543210,amit@test.com,Shimla,City Electrical,Lakkar Bazar,Sec-A,123412341234,ABCDE1234F,SBI,1122334455,SBIN0001234,Priya Kumar,Spouse,9876543211,amit@upi,25000,12500,2000,LN-1045-A,15000,1200,2500"
+      sampleRow = [q("1045"),q("S-1045"),q("Amit Kumar"),q("Foreman"),q("9876543210"),q("amit@test.com"),q("Shimla"),q("City Electrical"),q("Lakkar Bazar"),q("Sec-A"),q("123412341234"),q("ABCDE1234F"),q("SBI"),q("1122334455"),q("SBIN0001234"),q("Priya Kumar"),q("Spouse"),q("9876543211"),q("amit@upi"),q("25000"),q("12500"),q("2000"),q("LN-1045-A"),q("15000"),q("1200"),q("2500")].join(",")
     } else if (type === 'shares') {
-      sampleRow = "1045,Amit Kumar,1000,2000,2026-07-31,SAL-JULY-2026"
+      sampleRow = [q("1045"),q("Amit Kumar"),q("1000"),q("2000"),q("2026-07-31"),q("SAL-JULY-2026")].join(",")
     } else if (type === 'loans') {
-      sampleRow = "1045,Amit Kumar,LN-1045-A,4614,2026-07-31,EMI-JULY-2026"
+      sampleRow = [q("1045"),q("Amit Kumar"),q("LN-1045-A"),q("4614"),q("2026-07-31"),q("EMI-JULY-2026")].join(",")
     } else if (type === 'historicalLoans') {
-      sampleRow = "1045,50000,10,12,2023-04-01,25000"
+      sampleRow = [q("1045"),q("50000"),q("10"),q("12"),q("2023-04-01"),q("25000")].join(",")
     }
 
-    csvContent += headers + "\n" + sampleRow + "\n"
+    const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + sampleRow + "\n"
     const encodedUri = encodeURI(csvContent)
     const link = document.createElement("a")
     link.setAttribute("href", encodedUri)
@@ -285,7 +285,9 @@ const UpdateData = () => {
         newRow[targetKey] = mappedHeader ? row[mappedHeader] : "";
       });
 
-      if (!newRow.Vendor_No) {
+      // FIX #5: Handle both Vendor_No (master/shares/loans) and vendorNo (historicalLoans)
+      const vendorKey = newRow.Vendor_No || newRow.vendorNo;
+      if (!vendorKey) {
         newRow._isValid = false;
         newRow._selected = false;
         newRow._errors.push("Missing Vendor No");
@@ -324,7 +326,6 @@ const UpdateData = () => {
     }
   }
 
-  // --- 3. FINAL UPLOAD ---
   const handleFinalUpload = async () => {
     const dataToUpload = processedData.filter(r => r._selected);
     if (dataToUpload.length === 0) {
@@ -345,14 +346,18 @@ const UpdateData = () => {
           cashInHand: initForm.cashInHand || 0,
           rows: dataToUpload
         };
+      } else if (activeType === 'shares') {
+        // FIX #1: Real API endpoint for bulk shares/RD upload
+        endpoint = `${apiBase}/api/transactions/bulk-shares`;
+        payload = { rows: dataToUpload };
+      } else if (activeType === 'loans') {
+        // FIX #1: Real API endpoint for bulk EMI upload
+        endpoint = `${apiBase}/api/transactions/bulk-emis`;
+        payload = { rows: dataToUpload };
       } else {
-        // Mock endpoints for Shares and Loans for now
-        // Normally you'd hit `/api/transactions/bulk-shares` etc.
-        setTimeout(() => {
-          setAlerts({ ...alerts, [activeType]: { type: 'success', text: `Success: Processed ${dataToUpload.length} rows.` } });
-          setStage('DONE');
-          setIsUploading(false);
-        }, 1500);
+        // Fallback for any future upload types
+        setAlerts({ ...alerts, [activeType]: { type: 'warning', text: `Upload type '${activeType}' is not yet connected to an API endpoint.` } });
+        setIsUploading(false);
         return;
       }
 
@@ -367,7 +372,7 @@ const UpdateData = () => {
 
       const result = await response.json();
       if (response.ok) {
-        setAlerts({ ...alerts, [activeType]: { type: 'success', text: result.message || 'Upload Successful.' } });
+        setAlerts({ ...alerts, [activeType]: { type: 'success', text: result.message || `Upload Successful. Processed ${dataToUpload.length} rows.` } });
         setStage('DONE');
       } else {
         setAlerts({ ...alerts, [activeType]: { type: 'danger', text: result.message || 'Upload failed.' } });
@@ -375,7 +380,7 @@ const UpdateData = () => {
     } catch (err) {
       setAlerts({ ...alerts, [activeType]: { type: 'danger', text: 'Server error during upload.' } });
     } finally {
-      if (activeType === 'master') setIsUploading(false);
+      setIsUploading(false); // FIX #4: Always clears spinner, not just for master type
     }
   }
 
@@ -563,7 +568,18 @@ const UpdateData = () => {
             <CTable bordered align="middle" hover small striped>
               <CTableHead color="light" style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                 <CTableRow>
-                  <CTableHeaderCell className="text-center" style={{ minWidth: '60px' }}>Upload</CTableHeaderCell>
+                  <CTableHeaderCell className="text-center" style={{ minWidth: '60px' }}>
+                    {/* FIX #3: Select-All / Deselect-All checkbox */}
+                    <input
+                      type="checkbox"
+                      className="form-check-input"
+                      title="Select / Deselect All"
+                      checked={processedData.length > 0 && processedData.every(r => r._selected)}
+                      onChange={(e) => {
+                        setProcessedData(processedData.map(r => ({ ...r, _selected: r._isValid ? e.target.checked : false })));
+                      }}
+                    />
+                  </CTableHeaderCell>
                   <CTableHeaderCell style={{ minWidth: '100px' }}>Source / Month</CTableHeaderCell>
                   <CTableHeaderCell style={{ minWidth: '100px' }}>Status</CTableHeaderCell>
                   {/* DYNAMIC HEADERS FROM SCHEMA */}
@@ -592,7 +608,13 @@ const UpdateData = () => {
                     <CTableDataCell><CBadge color="info">{row._sourceSheet}</CBadge></CTableDataCell>
                     <CTableDataCell>
                       {!row._isValid ? (
-                        <CBadge color="danger" title={row._errors.join(', ')}>Error</CBadge>
+                        <>
+                          <CBadge color="danger">Error</CBadge>
+                          {/* FIX #6: Show errors inline instead of hidden tooltip */}
+                          <div className="text-danger" style={{ fontSize: '0.72rem', marginTop: 2 }}>
+                            {row._errors.join(' · ')}
+                          </div>
+                        </>
                       ) : row._selected ? (
                         <CBadge color="success">Valid</CBadge>
                       ) : (
@@ -770,7 +792,12 @@ const UpdateData = () => {
         <CCol lg={4} className="mb-4">
           <CCard className="shadow-sm border-0 h-100 border-top border-3 border-warning">
             <CCardHeader className="bg-white pt-3 pb-3">
-              <h5 className="mb-0 text-dark fw-bold">4. Historical Loans (FY 23-24)</h5>
+              {/* FIX #2: Dynamic FY label */}
+              {(() => {
+                const now = new Date();
+                const yr = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+                return <h5 className="mb-0 text-dark fw-bold">4. Historical Loans (FY {yr}–{yr + 1})</h5>;
+              })()}
             </CCardHeader>
             <CCardBody className="p-4 d-flex flex-column">
               <p className="text-medium-emphasis mb-4 small">Bulk upload historical loans directly to the server.</p>
