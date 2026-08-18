@@ -401,16 +401,11 @@ const MemberHelpdesk = () => {
   return (
     <CRow className="g-3">
       <CCol xs={12}>
-        <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-          <div>
-            <h4 className="mb-0 fw-bold d-flex align-items-center gap-2" style={{ color:"#4361ee" }}>
-              <CIcon icon={cilEnvelopeOpen} size="lg" /> Member Helpdesk &amp; Communication
-            </h4>
-            <p className="text-muted small mb-0 mt-1">Communicate directly with Society Executive Officers &amp; Admins. Track queries and get resolution updates.</p>
-          </div>
-          <CButton className="text-white fw-bold shadow-sm" style={{ background:"linear-gradient(135deg,#4361ee,#7209b7)", border:"none" }} onClick={() => setShowNew(true)}>
-            <CIcon icon={cilPlus} className="me-1" /> New Query
-          </CButton>
+        <div className="mb-2">
+          <h4 className="mb-0 fw-bold d-flex align-items-center gap-2" style={{ color:"#4361ee" }}>
+            <CIcon icon={cilEnvelopeOpen} size="lg" /> Member Helpdesk &amp; Communication
+          </h4>
+          <p className="text-muted small mb-0 mt-1">Get instant answers with AI or submit official queries to Society Executive Officers &amp; Admins.</p>
         </div>
 
         {/* 🤖 Instant AI Self-Service Banner */}
@@ -459,6 +454,25 @@ const MemberHelpdesk = () => {
             </div>
           </CCardBody>
         </CCard>
+
+        {/* ── Official Tickets Action Bar below AI Banner ── */}
+        <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 p-2 px-3 rounded bg-white shadow-sm border mb-2">
+          <div>
+            <span className="fw-semibold text-dark" style={{ fontSize: 14 }}>
+              📋 Official Support Tickets &amp; Communication
+            </span>
+            <div className="text-muted small">
+              Need personalized assistance, verification, or clearance from executives?
+            </div>
+          </div>
+          <CButton
+            className="text-white fw-bold px-3 py-2 shadow-sm d-flex align-items-center gap-2"
+            style={{ background: "linear-gradient(135deg, #4361ee, #7209b7)", border: "none", borderRadius: 8 }}
+            onClick={() => setShowNew(true)}
+          >
+            <CIcon icon={cilPlus} /> + New Query / Ticket
+          </CButton>
+        </div>
       </CCol>
 
       {/* ── Left: Thread List ── */}
