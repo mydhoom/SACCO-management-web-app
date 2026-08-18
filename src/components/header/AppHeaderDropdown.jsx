@@ -55,6 +55,7 @@ const AppHeaderDropdown = () => {
     localStorage.removeItem('token')
     localStorage.removeItem('userName')
     localStorage.removeItem('userAvatar')
+    localStorage.removeItem('userRole')
     navigate('/login')
   }
 

@@ -9,6 +9,7 @@
  */
 
 import React, { useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { AppContent, AppSidebar, AppFooter } from '../components/index'
 import AppHeader from '../components/header/AppHeader'
 import AiAssistant from '../components/AiAssistant/AiAssistant'
@@ -16,11 +17,23 @@ import InactivityTimer from '../components/InactivityTimer'
 import { applyColorTheme, getStoredTheme } from '../utils/themeManager'
 
 const DefaultLayout = () => {
-  // Apply saved color theme on every layout mount
+  const navigate = useNavigate()
+
   useEffect(() => {
+    const token = localStorage.getItem('token') || localStorage.getItem('adminToken')
+    if (!token) {
+      navigate('/login', { replace: true })
+      return
+    }
+
     const stored = getStoredTheme()
     applyColorTheme(stored.id)
-  }, [])
+  }, [navigate])
+
+  const token = localStorage.getItem('token') || localStorage.getItem('adminToken')
+  if (!token) {
+    return null
+  }
 
   return (
     <div>
