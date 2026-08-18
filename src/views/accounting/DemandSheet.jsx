@@ -386,22 +386,19 @@ const DemandSheet = () => {
                 {/* Table */}
                 <div className="table-responsive rounded-3 border shadow-sm">
                   <CTable hover align="middle" className="mb-0">
-                    <CTableHead style={{ background: 'linear-gradient(135deg,#1e1e2f,#2d2b55)', color: '#fff' }}>
+                    <CTableHead className="demand-table-header">
                       <CTableRow>
-                        <CTableHeaderCell className="text-white py-3">#</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white py-3" style={{ width: 50 }}>#</CTableHeaderCell>
                         <CTableHeaderCell className="text-white">Vendor No.</CTableHeaderCell>
                         <CTableHeaderCell className="text-white">Member Name</CTableHeaderCell>
                         <CTableHeaderCell className="text-white text-end">RD Monthly</CTableHeaderCell>
                         <CTableHeaderCell className="text-white text-end">Loan Principal</CTableHeaderCell>
                         <CTableHeaderCell className="text-white text-end">Loan Interest</CTableHeaderCell>
                         <CTableHeaderCell className="text-white text-end">Loan Total</CTableHeaderCell>
-                        <CTableHeaderCell
-                          className="text-end py-3"
-                          style={{ background: '#f72585', color: '#fff' }}
-                        >
+                        <CTableHeaderCell className="text-white text-end highlight-total py-3">
                           Total Deduction
                         </CTableHeaderCell>
-                        <CTableHeaderCell className="text-white text-center">Action</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white text-center" style={{ width: 100 }}>Action</CTableHeaderCell>
                       </CTableRow>
                     </CTableHead>
                     <CTableBody>
@@ -592,6 +589,19 @@ const DemandSheet = () => {
 
       <style>{`
         .demand-row:hover { background: rgba(67, 97, 238, 0.04) !important; }
+        .demand-table-header th {
+          background-color: #1e293b !important;
+          color: #ffffff !important;
+          font-weight: 600 !important;
+          font-size: 0.875rem !important;
+          padding: 12px 14px !important;
+          border-bottom: 2px solid #3b82f6 !important;
+          vertical-align: middle !important;
+        }
+        .demand-table-header th.highlight-total {
+          background-color: #e11d48 !important;
+          color: #ffffff !important;
+        }
       `}</style>
     </CRow>
   );

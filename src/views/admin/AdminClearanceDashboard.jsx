@@ -294,7 +294,7 @@ const BatchBreakdownModal = ({ batch: initialBatch, onClose, apiBase, token, onB
           {filteredPending.length > 0 ? (
             <div className="table-responsive rounded border">
               <CTable hover align="middle" className="mb-0">
-                <CTableHead style={{ background: '#f0f4ff' }}>
+                <CTableHead className="modal-table-header">
                   <CTableRow>
                     <CTableHeaderCell style={{ width: 48 }}>
                       <CFormCheck
@@ -303,13 +303,13 @@ const BatchBreakdownModal = ({ batch: initialBatch, onClose, apiBase, token, onB
                         id="selectAll"
                       />
                     </CTableHeaderCell>
-                    <CTableHeaderCell>Vendor No.</CTableHeaderCell>
-                    <CTableHeaderCell>Member Name</CTableHeaderCell>
-                    <CTableHeaderCell className="text-end">RD (₹)</CTableHeaderCell>
-                    <CTableHeaderCell className="text-end">Principal (₹)</CTableHeaderCell>
-                    <CTableHeaderCell className="text-end">Interest (₹)</CTableHeaderCell>
-                    <CTableHeaderCell className="text-end">Total (₹)</CTableHeaderCell>
-                    <CTableHeaderCell className="text-center">Actions</CTableHeaderCell>
+                    <CTableHeaderCell className="text-white">Vendor No.</CTableHeaderCell>
+                    <CTableHeaderCell className="text-white">Member Name</CTableHeaderCell>
+                    <CTableHeaderCell className="text-white text-end">RD (₹)</CTableHeaderCell>
+                    <CTableHeaderCell className="text-white text-end">Principal (₹)</CTableHeaderCell>
+                    <CTableHeaderCell className="text-white text-end">Interest (₹)</CTableHeaderCell>
+                    <CTableHeaderCell className="text-white text-end">Total (₹)</CTableHeaderCell>
+                    <CTableHeaderCell className="text-white text-center">Actions</CTableHeaderCell>
                   </CTableRow>
                 </CTableHead>
                 <CTableBody>
@@ -382,14 +382,14 @@ const BatchBreakdownModal = ({ batch: initialBatch, onClose, apiBase, token, onB
               </h6>
               <div className="table-responsive rounded border">
                 <CTable small align="middle" className="mb-0">
-                  <CTableHead style={{ background: '#f0fff8' }}>
+                  <CTableHead className="modal-cleared-table-header">
                     <CTableRow>
-                      <CTableHeaderCell>Vendor No.</CTableHeaderCell>
-                      <CTableHeaderCell>Member Name</CTableHeaderCell>
-                      <CTableHeaderCell className="text-end">RD (₹)</CTableHeaderCell>
-                      <CTableHeaderCell className="text-end">Loan (₹)</CTableHeaderCell>
-                      <CTableHeaderCell className="text-end">Total (₹)</CTableHeaderCell>
-                      <CTableHeaderCell>Cleared At</CTableHeaderCell>
+                      <CTableHeaderCell className="text-white">Vendor No.</CTableHeaderCell>
+                      <CTableHeaderCell className="text-white">Member Name</CTableHeaderCell>
+                      <CTableHeaderCell className="text-white text-end">RD (₹)</CTableHeaderCell>
+                      <CTableHeaderCell className="text-white text-end">Loan (₹)</CTableHeaderCell>
+                      <CTableHeaderCell className="text-white text-end">Total (₹)</CTableHeaderCell>
+                      <CTableHeaderCell className="text-white">Cleared At</CTableHeaderCell>
                     </CTableRow>
                   </CTableHead>
                   <CTableBody>
@@ -653,7 +653,7 @@ const AdminClearanceDashboard = () => {
                   ) : (
                     <div className="table-responsive rounded border shadow-sm">
                       <CTable hover align="middle" className="mb-0">
-                        <CTableHead style={{ background: 'linear-gradient(135deg,#1e1e2f,#2d2b55)', color: '#fff' }}>
+                        <CTableHead className="clearance-table-header">
                           <CTableRow>
                             <CTableHeaderCell className="text-white py-3">Batch ID / Number</CTableHeaderCell>
                             <CTableHeaderCell className="text-white">Purpose & Month</CTableHeaderCell>
@@ -661,7 +661,7 @@ const AdminClearanceDashboard = () => {
                             <CTableHeaderCell className="text-white text-center">Employees</CTableHeaderCell>
                             <CTableHeaderCell className="text-white text-end">Total RD</CTableHeaderCell>
                             <CTableHeaderCell className="text-white text-end">Total Loan (P+I)</CTableHeaderCell>
-                            <CTableHeaderCell className="text-white text-end">Grand Total</CTableHeaderCell>
+                            <CTableHeaderCell className="text-white text-end highlight-total">Grand Total</CTableHeaderCell>
                             <CTableHeaderCell className="text-white text-center">Progress</CTableHeaderCell>
                             <CTableHeaderCell className="text-white text-end">Uncleared</CTableHeaderCell>
                             <CTableHeaderCell className="text-white text-center">Action</CTableHeaderCell>
@@ -748,16 +748,16 @@ const AdminClearanceDashboard = () => {
                   </div>
                 ) : (
                   <CTable hover responsive align="middle" className="border rounded">
-                    <CTableHead color="light">
+                    <CTableHead className="clearance-table-header">
                       <CTableRow>
-                        <CTableHeaderCell>Date Submitted</CTableHeaderCell>
-                        <CTableHeaderCell>Vendor No.</CTableHeaderCell>
-                        <CTableHeaderCell>Member Name</CTableHeaderCell>
-                        <CTableHeaderCell>Payment Mode</CTableHeaderCell>
-                        <CTableHeaderCell>Ref / Cheque No.</CTableHeaderCell>
-                        <CTableHeaderCell className="text-end">Amount</CTableHeaderCell>
-                        <CTableHeaderCell className="text-center">Verification</CTableHeaderCell>
-                        <CTableHeaderCell className="text-center">Action</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white py-3">Date Submitted</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white">Vendor No.</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white">Member Name</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white">Payment Mode</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white">Ref / Cheque No.</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white text-end">Amount</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white text-center">Verification</CTableHeaderCell>
+                        <CTableHeaderCell className="text-white text-center">Action</CTableHeaderCell>
                       </CTableRow>
                     </CTableHead>
                     <CTableBody>
@@ -825,6 +825,40 @@ const AdminClearanceDashboard = () => {
           onBatchUpdated={fetchDemandBatches}
         />
       )}
+
+      <style>{`
+        .clearance-table-header th {
+          background-color: #1e293b !important;
+          color: #ffffff !important;
+          font-weight: 600 !important;
+          font-size: 0.875rem !important;
+          padding: 12px 14px !important;
+          border-bottom: 2px solid #3b82f6 !important;
+          vertical-align: middle !important;
+        }
+        .clearance-table-header th.highlight-total {
+          background-color: #e11d48 !important;
+          color: #ffffff !important;
+        }
+        .modal-table-header th {
+          background-color: #1e293b !important;
+          color: #ffffff !important;
+          font-weight: 600 !important;
+          font-size: 0.85rem !important;
+          padding: 10px 12px !important;
+          border-bottom: 2px solid #3b82f6 !important;
+          vertical-align: middle !important;
+        }
+        .modal-cleared-table-header th {
+          background-color: #0f766e !important;
+          color: #ffffff !important;
+          font-weight: 600 !important;
+          font-size: 0.85rem !important;
+          padding: 8px 12px !important;
+          border-bottom: 2px solid #14b8a6 !important;
+          vertical-align: middle !important;
+        }
+      `}</style>
     </>
   )
 }
