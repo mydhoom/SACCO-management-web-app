@@ -25,4 +25,11 @@ router.post("/threads/:ticketId/reply", ctrl.replyToThread);
 // Change status (admin/executive only)
 router.put("/threads/:ticketId/status", authorize(["admin","executive"]), ctrl.updateStatus);
 
+
+// Email System Endpoints
+router.get("/email/status", ctrl.getEmailStatus);
+router.post("/email/test", ctrl.sendTestEmail);
+router.post("/email/broadcast", authorize(["admin","executive"]), ctrl.broadcastNotice);
+
 module.exports = router;
+

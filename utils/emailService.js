@@ -1,196 +1,423 @@
 const nodemailer = require('nodemailer');
-require('dotenv').config();
 
-// Create a transporter using SMTP (defaulting to Gmail)
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER || 'mahadevsociety2026@gmail.com',
-    pass: process.env.EMAIL_PASS || 'ymbzweiwbwhehukh', // Hardcoded as requested
-  },
-});
+/**
+ * emailService.js
+ * Centralized Email Automation Engine for Mahadev Co-operative Society
+ * Supports Gmail, Custom Domain SMTP (Brevo, Zoho, Google Workspace), and graceful Mock mode.
+ */
 
-// A standard HTML wrapper for branded emails
-const getHtmlTemplate = (title, content) => `
-  <div style="font-family: 'Inter', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
-    <div style="background-color: #1e293b; padding: 24px; text-align: center;">
-      <h1 style="color: #ffffff; margin: 0; font-size: 24px; font-weight: 700; letter-spacing: 0.5px;">Mahadev Society</h1>
-      <p style="color: #94a3b8; margin: 8px 0 0 0; font-size: 14px;">Co-operative Thrift & Credit Society</p>
-    </div>
-    <div style="padding: 32px; background-color: #ffffff; color: #334155; line-height: 1.6;">
-      <h2 style="color: #0f172a; margin-top: 0; font-size: 20px;">${title}</h2>
-      ${content}
-    </div>
-    <div style="background-color: #f8fafc; padding: 20px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 13px; color: #64748b;">
-      This is an automated system notification. Please do not reply directly to this email.<br>
-      © ${new Date().getFullYear()} Mahadev Co-operative Society
-    </div>
-  </div>
-`;
+// Initialize SMTP Transporter
+const getTransporter = () => {
+  const user = process.env.EMAIL_USER;
+  const pass = process.env.EMAIL_PASS;
+  const host = process.env.SMTP_HOST;
+  const port = Number(process.env.SMTP_PORT) || 587;
+  const secure = process.env.SMTP_SECURE === 'true' || port === 465;
 
-exports.sendWelcomeEmail = async (email, name, vendorNo, plainPassword) => {
-  if (!email) return;
-  
-  const content = `
-    <p>Dear <strong>${name}</strong>,</p>
-    <p>Welcome to the Mahadev Co-operative Society! Your member account has been successfully approved and created.</p>
-    <div style="background-color: #f1f5f9; padding: 16px; border-radius: 6px; margin: 24px 0;">
-      <p style="margin: 0 0 8px 0;"><strong>Your Login Credentials:</strong></p>
-      <ul style="margin: 0; padding-left: 20px;">
-        <li>Vendor No: <strong>${vendorNo}</strong></li>
-        <li>Temporary Password: <strong>${plainPassword}</strong></li>
-      </ul>
-    </div>
-    <p>For security purposes, you will be prompted to change your temporary password immediately upon your first login.</p>
-    <p style="margin-top: 24px;">
-      <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}" style="background-color: #3b82f6; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; display: inline-block;">Login to your Dashboard</a>
-    </p>
-  `;
-
-  try {
-    await transporter.sendMail({
-      from: `"Mahadev Society" <${process.env.EMAIL_USER || 'mahadevsociety2026@gmail.com'}>`,
-      to: email,
-      subject: 'Welcome to Mahadev Society - Your Account is Ready',
-      html: getHtmlTemplate('Account Activated', content)
+  if (host) {
+    // Custom SMTP (Brevo / Zoho / Custom Domain)
+    return nodemailer.createTransport({
+      host,
+      port,
+      secure,
+      auth: { user, pass },
+      tls: { rejectUnauthorized: false },
     });
-    console.log(`Welcome email sent to ${email}`);
-  } catch (error) {
-    console.error(`Failed to send welcome email to ${email}:`, error);
   }
+
+  if (user && pass) {
+    // Standard Gmail Service
+    return nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user, pass },
+    });
+  }
+
+  // Fallback / Mock transporter for development when password is not yet configured
+  return null;
 };
 
-exports.sendLoanNotification = async (email, name, amount, status) => {
-  if (!email) return;
+// Base HTML Template wrapper
+const wrapHtmlTemplate = ({ title, subtitle, contentHtml, actionButton }) => {
+  const fromName = process.env.EMAIL_SOCIETY_NAME || 'Mahadev Co-operative (T&C) Society Ltd.';
+  const tagline = 'Himachal Pradesh State Electricity Board Ltd. (HPSEBL)';
+  const currentYear = new Date().getFullYear();
 
-  const isApproved = status.toLowerCase() === 'approved';
-  const color = isApproved ? '#10b981' : '#ef4444';
-  const statusText = isApproved ? 'Approved' : 'Rejected';
-
-  const content = `
-    <p>Dear <strong>${name}</strong>,</p>
-    <p>We are writing to inform you about the status of your recent loan application.</p>
-    <div style="background-color: #f1f5f9; border-left: 4px solid ${color}; padding: 16px; margin: 24px 0;">
-      <p style="margin: 0 0 8px 0;"><strong>Loan Application Status:</strong></p>
-      <p style="margin: 0; font-size: 18px;">
-        <span style="color: ${color}; font-weight: bold; text-transform: uppercase;">${statusText}</span>
-      </p>
-      ${isApproved ? `<p style="margin: 8px 0 0 0;">Approved Amount: <strong>₹${new Intl.NumberFormat('en-IN').format(amount)}</strong></p>` : ''}
-    </div>
-    <p>${isApproved 
-      ? 'The funds will be disbursed to your registered bank account shortly. You can track your EMI schedule and outstanding balance directly from your Member Dashboard.' 
-      : 'If you have any questions regarding this decision, please contact the society administrators.'}</p>
-  `;
-
-  try {
-    await transporter.sendMail({
-      from: `"Mahadev Society" <${process.env.EMAIL_USER || 'mahadevsociety2026@gmail.com'}>`,
-      to: email,
-      subject: `Loan Application ${statusText}`,
-      html: getHtmlTemplate('Loan Application Update', content)
-    });
-  } catch (error) {
-    console.error(`Failed to send loan notification to ${email}:`, error);
-  }
-};
-
-exports.sendReceipt = async (email, name, amount, category, entryType, txnRef = null) => {
-  if (!email) return;
-
-  const isCredit = entryType.toUpperCase() === 'CREDIT';
-  const formattedAmount = `₹${new Intl.NumberFormat('en-IN').format(amount)}`;
-  const displayCategory = category.replace(/_/g, ' ');
-  const now = new Date();
-  const formattedDate = now.toLocaleString('en-IN', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', hour12: true
-  });
-  const ref = txnRef || `TXN-${Date.now()}`;
-
-  const content = `
-    <p>Dear <strong>${name}</strong>,</p>
-    <p>A new transaction has been successfully recorded in your account.</p>
-    
-    <div style="background-color: #f1f5f9; padding: 20px; border-radius: 8px; margin: 24px 0; text-align: center;">
-      <div style="font-size: 14px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Transaction Amount</div>
-      <div style="font-size: 32px; font-weight: 700; color: ${isCredit ? '#10b981' : '#ef4444'};">
-        ${isCredit ? '+' : '-'}${formattedAmount}
+  return `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title}</title>
+    <style>
+      body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; background-color: #f1f5f9; color: #1e293b; line-height: 1.6; }
+      .container { max-width: 600px; margin: 24px auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; }
+      .header { background: linear-gradient(135deg, #0b192c 0%, #1e3a8a 50%, #1e1b4b 100%); padding: 32px 24px; text-align: center; color: #ffffff; }
+      .header h1 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: 0.5px; color: #ffffff; text-transform: uppercase; }
+      .header p { margin: 6px 0 0; font-size: 12px; color: #fef08a; font-weight: 600; letter-spacing: 0.3px; }
+      .banner { background: #f8fafc; border-bottom: 2px solid #e2e8f0; padding: 16px 24px; }
+      .banner h2 { margin: 0; font-size: 17px; color: #0f172a; font-weight: 700; }
+      .banner p { margin: 4px 0 0; font-size: 13px; color: #64748b; }
+      .content { padding: 28px 24px; font-size: 14px; color: #334155; }
+      .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 18px 0; }
+      .table-data { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+      .table-data td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; }
+      .table-data td.label { color: #64748b; font-weight: 600; width: 45%; }
+      .table-data td.val { color: #0f172a; font-weight: 700; text-align: right; }
+      .highlight-badge { display: inline-block; background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 13px; }
+      .btn { display: inline-block; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #ffffff !important; text-decoration: none; padding: 12px 28px; border-radius: 8px; font-weight: 700; font-size: 14px; text-align: center; margin: 20px 0 10px; box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3); }
+      .footer { background: #0f172a; padding: 24px; text-align: center; font-size: 11px; color: #94a3b8; line-height: 1.5; }
+      .footer p { margin: 4px 0; }
+      .footer a { color: #38bdf8; text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>${fromName}</h1>
+        <p>🏛️ ${tagline}</p>
       </div>
-      <div style="margin-top: 12px; display: inline-block; padding: 4px 12px; background-color: #e2e8f0; border-radius: 100px; font-size: 12px; font-weight: 600; color: #475569;">
-        ${displayCategory}
+
+      <div class="banner">
+        <h2>${title}</h2>
+        ${subtitle ? `<p>${subtitle}</p>` : ''}
+      </div>
+
+      <div class="content">
+        ${contentHtml}
+
+        ${actionButton ? `
+          <div style="text-align: center; margin-top: 24px;">
+            <a href="${actionButton.url}" class="btn" target="_blank">${actionButton.text}</a>
+          </div>
+        ` : ''}
+      </div>
+
+      <div class="footer">
+        <p><strong>Mahadev Co-operative (Thrift & Credit) Society Ltd.</strong></p>
+        <p>HPSEBL Complex, Shimla, Himachal Pradesh | Helpline: support@mahadevsociety.com</p>
+        <p style="margin-top: 10px; color: #64748b; font-size: 10px;">
+          This is an automated transactional message generated by the SACCO Portal for registered members. Please do not reply directly to this automated email.
+        </p>
       </div>
     </div>
-
-    <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin: 0 0 24px 0;">
-      <tr style="border-bottom: 1px solid #e2e8f0;">
-        <td style="padding: 10px 0; color: #64748b;">Date &amp; Time</td>
-        <td style="padding: 10px 0; text-align: right; font-weight: 600; color: #0f172a;">${formattedDate}</td>
-      </tr>
-      <tr style="border-bottom: 1px solid #e2e8f0;">
-        <td style="padding: 10px 0; color: #64748b;">Reference No.</td>
-        <td style="padding: 10px 0; text-align: right; font-weight: 600; color: #0f172a; font-family: monospace;">${ref}</td>
-      </tr>
-      <tr>
-        <td style="padding: 10px 0; color: #64748b;">Type</td>
-        <td style="padding: 10px 0; text-align: right; font-weight: 600; color: ${isCredit ? '#10b981' : '#ef4444'}">${isCredit ? 'CREDIT' : 'DEBIT'}</td>
-      </tr>
-    </table>
-    
-    <p>You can view your updated balances and full transaction history by logging into the Member Portal.</p>
-    <p style="font-size: 12px; color: #94a3b8;">Please quote the Reference No. when contacting the society office regarding this transaction.</p>
+  </body>
+  </html>
   `;
+};
+
+// Generic Send Function
+const sendEmail = async ({ to, subject, html, text }) => {
+  const fromAddress = process.env.EMAIL_FROM || `"Mahadev Co-operative Society" <${process.env.EMAIL_USER || 'mahadevsociety2026@gmail.com'}>`;
+
+  if (!to) {
+    console.warn('⚠️ Email send skipped: No recipient email address provided.');
+    return { success: false, message: 'No recipient email provided.' };
+  }
+
+  const transporter = getTransporter();
+
+  if (!transporter) {
+    console.log('\n📧 [MOCK EMAIL DISPATCH - Configure EMAIL_PASS in .env to send live]');
+    console.log(`To: ${to}`);
+    console.log(`Subject: ${subject}`);
+    console.log('-------------------------------------------------------------\n');
+    return { success: true, mock: true, message: 'Email logged in mock mode (SMTP credentials pending in .env).' };
+  }
 
   try {
-    await transporter.sendMail({
-      from: `"Mahadev Society" <${process.env.EMAIL_USER || 'mahadevsociety2026@gmail.com'}>`,
-      to: email,
-      subject: `E-Receipt: ${displayCategory} — ${formattedAmount}`,
-      html: getHtmlTemplate('Transaction E-Receipt', content)
+    const info = await transporter.sendMail({
+      from: fromAddress,
+      to,
+      subject,
+      text: text || subject,
+      html,
     });
+    console.log(`✅ Automated Email sent successfully to ${to} (Message ID: ${info.messageId})`);
+    return { success: true, messageId: info.messageId };
   } catch (error) {
-    console.error(`Failed to send receipt to ${email}:`, error);
+    console.error(`❌ Email dispatch error to ${to}:`, error.message);
+    return { success: false, error: error.message };
   }
 };
 
-exports.sendDefaulterReminderEmail = async (email, name, amountOverdue, daysOverdue, emiAmount) => {
-  if (!email) return;
+// ── 1. WELCOME & ACCOUNT APPROVAL EMAIL ──
+const sendWelcomeApprovalEmail = async ({ to, name, vendorNo, designation, loginUrl = 'http://localhost:3000/#/login' }) => {
+  const title = '🎉 Welcome to Mahadev Co-operative Society!';
+  const subtitle = 'Your membership account access has been approved.';
 
-  const formattedAmount = `₹${new Intl.NumberFormat('en-IN').format(amountOverdue)}`;
-  const formattedEmi = `₹${new Intl.NumberFormat('en-IN').format(emiAmount)}`;
-
-  const content = `
-    <p>Dear <strong>${name}</strong>,</p>
-    <p>This is a polite reminder that your loan EMI payment is currently overdue by <strong>${daysOverdue} days</strong>.</p>
+  const contentHtml = `
+    <p>Dear <strong>${name || 'Member'}</strong>,</p>
+    <p>We are pleased to inform you that your registration with <strong>Mahadev Co-operative (T&C) Society Ltd.</strong> has been verified and approved by the administration.</p>
     
-    <div style="background-color: #fff1f2; border-left: 4px solid #e11d48; padding: 16px; margin: 24px 0;">
-      <p style="margin: 0 0 8px 0; color: #9f1239;"><strong>Overdue Details:</strong></p>
-      <table style="width: 100%; border-collapse: collapse; font-size: 15px; margin: 0;">
-        <tr>
-          <td style="padding: 4px 0; color: #4c0519;">Total Overdue:</td>
-          <td style="padding: 4px 0; text-align: right; font-weight: 700; color: #e11d48;">${formattedAmount}</td>
-        </tr>
-        <tr>
-          <td style="padding: 4px 0; color: #4c0519;">Monthly EMI:</td>
-          <td style="padding: 4px 0; text-align: right; font-weight: 600; color: #4c0519;">${formattedEmi}</td>
-        </tr>
-        <tr>
-          <td style="padding: 4px 0; color: #4c0519;">Days Late:</td>
-          <td style="padding: 4px 0; text-align: right; font-weight: 600; color: #e11d48;">${daysOverdue}</td>
-        </tr>
+    <div class="card">
+      <div style="font-weight: 700; margin-bottom: 8px; color: #0284c7;">📋 Your Membership Credentials:</div>
+      <table class="table-data">
+        <tr><td class="label">Member Name</td><td class="val">${name}</td></tr>
+        <tr><td class="label">Vendor / Employee No</td><td class="val"><span class="highlight-badge">${vendorNo}</span></td></tr>
+        ${designation ? `<tr><td class="label">Designation</td><td class="val">${designation}</td></tr>` : ''}
+        <tr><td class="label">Account Status</td><td class="val" style="color: #059669;">Active & Verified</td></tr>
       </table>
     </div>
-    
-    <p>Please clear your pending dues immediately to avoid further penalty charges. If you have already made the payment, kindly ignore this email or contact the society administrators to update your ledger.</p>
+
+    <p>You can now log in to the portal using your <strong>Vendor Number (${vendorNo})</strong> and the password you set during registration to view your Share Capital, Monthly RD Passbook, and apply for Loans.</p>
   `;
 
-  try {
-    await transporter.sendMail({
-      from: `"Mahadev Society" <${process.env.EMAIL_USER || 'mahadevsociety2026@gmail.com'}>`,
-      to: email,
-      subject: `URGENT: Loan EMI Overdue Notice`,
-      html: getHtmlTemplate('Overdue Payment Reminder', content)
-    });
-  } catch (error) {
-    console.error(`Failed to send defaulter reminder to ${email}:`, error);
+  const html = wrapHtmlTemplate({
+    title,
+    subtitle,
+    contentHtml,
+    actionButton: { text: '🔐 Log In to Member Portal', url: loginUrl },
+  });
+
+  return sendEmail({
+    to,
+    subject: `🎉 Account Approved - Mahadev Co-operative Society (Vendor No: ${vendorNo})`,
+    html,
+  });
+};
+
+// ── 2. PASSWORD RESET EMAIL ──
+const sendPasswordResetEmail = async ({ to, name, otpCode, resetUrl }) => {
+  const title = '🔐 Security Notice: Password Reset Request';
+  const subtitle = 'Verification code to reset your SACCO portal password.';
+
+  const contentHtml = `
+    <p>Dear <strong>${name || 'Member'}</strong>,</p>
+    <p>We received a request to reset your password for the Mahadev Co-operative Society portal.</p>
+    
+    <div style="text-align: center; margin: 24px 0;">
+      <div style="font-size: 13px; color: #64748b; font-weight: 600; text-transform: uppercase;">Your One-Time Verification Code (OTP):</div>
+      <div style="font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #0284c7; margin: 10px 0; background: #e0f2fe; padding: 12px 24px; border-radius: 8px; display: inline-block; border: 1px dashed #0284c7;">
+        ${otpCode}
+      </div>
+      <div style="font-size: 12px; color: #ef4444; font-weight: 600;">⏰ Valid for 15 minutes only. Do not share this code with anyone.</div>
+    </div>
+
+    <p>If you did not make this request, please ignore this email or notify the society helpdesk immediately.</p>
+  `;
+
+  const html = wrapHtmlTemplate({
+    title,
+    subtitle,
+    contentHtml,
+    actionButton: resetUrl ? { text: 'Reset Password', url: resetUrl } : null,
+  });
+
+  return sendEmail({
+    to,
+    subject: `🔐 Password Reset OTP: ${otpCode} - Mahadev Society`,
+    html,
+  });
+};
+
+// ── 3. LOAN SANCTION & DISBURSEMENT EMAIL ──
+const sendLoanSanctionEmail = async ({
+  to,
+  name,
+  vendorNo,
+  loanId,
+  loanAmount,
+  emiAmount,
+  tenure,
+  interestRate = 10,
+  disbursementDate,
+  portalUrl = 'http://localhost:3000/#/financials/loans',
+}) => {
+  const formattedAmount = Number(loanAmount || 0).toLocaleString('en-IN');
+  const formattedEmi = Number(emiAmount || 0).toLocaleString('en-IN');
+  const title = '🏦 Loan Sanction & Disbursement Advice';
+  const subtitle = `Loan Account #${loanId || 'Active Loan'}`;
+
+  const contentHtml = `
+    <p>Dear <strong>${name || 'Member'}</strong>,</p>
+    <p>Congratulations! Your loan application has been approved and sanctioned by the Society Board of Directors.</p>
+
+    <div class="card">
+      <div style="font-weight: 700; margin-bottom: 8px; color: #0284c7;">💳 Loan Particulars:</div>
+      <table class="table-data">
+        <tr><td class="label">Loan Account No</td><td class="val">${loanId || 'N/A'}</td></tr>
+        <tr><td class="label">Sanctioned Principal</td><td class="val" style="color: #059669; font-size: 15px;">₹ ${formattedAmount}</td></tr>
+        <tr><td class="label">Monthly EMI Amount</td><td class="val" style="color: #0284c7;">₹ ${formattedEmi} / month</td></tr>
+        <tr><td class="label">Repayment Tenure</td><td class="val">${tenure} Months</td></tr>
+        <tr><td class="label">Annual Interest Rate</td><td class="val">${interestRate}% per annum</td></tr>
+        ${disbursementDate ? `<tr><td class="label">Disbursement Date</td><td class="val">${new Date(disbursementDate).toLocaleDateString('en-IN')}</td></tr>` : ''}
+      </table>
+    </div>
+
+    <p>Monthly EMI deductions will be routed through your HPSEBL departmental salary payroll. You can track your real-time outstanding balance and amortization schedule on the portal.</p>
+  `;
+
+  const html = wrapHtmlTemplate({
+    title,
+    subtitle,
+    contentHtml,
+    actionButton: { text: '📊 View Loan Passbook', url: portalUrl },
+  });
+
+  return sendEmail({
+    to,
+    subject: `🏦 Loan Sanctioned: ₹${formattedAmount} (A/C: ${loanId}) - Mahadev Society`,
+    html,
+  });
+};
+
+// ── 4. MONTHLY EMI & DEPOSIT RECEIPT EMAIL ──
+const sendMonthlyReceiptEmail = async ({
+  to,
+  name,
+  vendorNo,
+  monthYear,
+  shareAmount = 0,
+  rdAmount = 0,
+  emiAmount = 0,
+  remainingLoan = 0,
+  rdBalance = 0,
+  portalUrl = 'http://localhost:3000/#/financials/shares-savings',
+}) => {
+  const totalDeduction = Number(shareAmount) + Number(rdAmount) + Number(emiAmount);
+  const title = `🧾 Monthly Society Credit Receipt (${monthYear})`;
+  const subtitle = `Deduction Acknowledgement for Vendor No: ${vendorNo}`;
+
+  const contentHtml = `
+    <p>Dear <strong>${name || 'Member'}</strong>,</p>
+    <p>Your monthly society contribution for the billing cycle <strong>${monthYear}</strong> has been successfully credited to your accounts:</p>
+
+    <div class="card">
+      <table class="table-data">
+        <tr><td class="label">Share Capital Contribution</td><td class="val">₹ ${Number(shareAmount).toLocaleString('en-IN')}</td></tr>
+        <tr><td class="label">Recurring Deposit (RD)</td><td class="val">₹ ${Number(rdAmount).toLocaleString('en-IN')}</td></tr>
+        ${emiAmount > 0 ? `<tr><td class="label">Loan EMI Repayment</td><td class="val">₹ ${Number(emiAmount).toLocaleString('en-IN')}</td></tr>` : ''}
+        <tr style="border-top: 2px solid #cbd5e1;"><td class="label" style="font-size: 14px;">Total Cleared Amount</td><td class="val" style="font-size: 15px; color: #0284c7;">₹ ${totalDeduction.toLocaleString('en-IN')}</td></tr>
+      </table>
+    </div>
+
+    <div class="card" style="background: #ecfdf5; border-color: #a7f3d0;">
+      <div style="font-weight: 700; color: #065f46; margin-bottom: 6px;">📈 Updated Account Balances:</div>
+      <table class="table-data">
+        <tr><td class="label" style="color: #047857;">Total Accumulated RD</td><td class="val" style="color: #065f46;">₹ ${Number(rdBalance).toLocaleString('en-IN')}</td></tr>
+        ${remainingLoan > 0 ? `<tr><td class="label" style="color: #b91c1c;">Remaining Loan Balance</td><td class="val" style="color: #b91c1c;">₹ ${Number(remainingLoan).toLocaleString('en-IN')}</td></tr>` : ''}
+      </table>
+    </div>
+  `;
+
+  const html = wrapHtmlTemplate({
+    title,
+    subtitle,
+    contentHtml,
+    actionButton: { text: '📄 Download Monthly Statement', url: portalUrl },
+  });
+
+  return sendEmail({
+    to,
+    subject: `🧾 Monthly Society Receipt: ₹${totalDeduction.toLocaleString('en-IN')} (${monthYear}) - Mahadev Society`,
+    html,
+  });
+};
+
+// ── 5. HELPDESK TICKET REPLY EMAIL ──
+const sendHelpdeskReplyEmail = async ({
+  to,
+  name,
+  ticketNo,
+  subject,
+  userMessage,
+  adminReply,
+  adminName = 'Society Helpdesk',
+  portalUrl = 'http://localhost:3000/#/communication/helpdesk',
+}) => {
+  const title = `💬 Update on Query #${ticketNo}`;
+  const subtitle = subject || 'Member Support Ticket Response';
+
+  const contentHtml = `
+    <p>Dear <strong>${name || 'Member'}</strong>,</p>
+    <p>The Society Administration has reviewed and replied to your support inquiry:</p>
+
+    <div class="card" style="background: #f0fdf4; border-left: 4px solid #10b981;">
+      <div style="font-size: 12px; color: #047857; font-weight: 700; text-transform: uppercase; margin-bottom: 4px;">Admin Response:</div>
+      <div style="color: #0f172a; font-size: 14px; white-space: pre-wrap;">${adminReply}</div>
+      <div style="font-size: 11px; color: #64748b; margin-top: 8px;">— Responded by <strong>${adminName}</strong></div>
+    </div>
+
+    ${userMessage ? `
+      <div style="margin-top: 16px; padding: 12px; background: #f8fafc; border-radius: 6px; font-size: 12px; color: #64748b;">
+        <strong>Your Original Message:</strong> "${userMessage}"
+      </div>
+    ` : ''}
+  `;
+
+  const html = wrapHtmlTemplate({
+    title,
+    subtitle,
+    contentHtml,
+    actionButton: { text: '💬 View Full Conversation', url: portalUrl },
+  });
+
+  return sendEmail({
+    to,
+    subject: `💬 Query #${ticketNo} Update: ${subject || 'Helpdesk Reply'} - Mahadev Society`,
+    html,
+  });
+};
+
+// ── 6. TEST EMAIL DISPATCH ──
+const sendTestEmail = async ({ to }) => {
+  const title = '⚡ SMTP Test Notification';
+  const subtitle = 'Mahadev Co-operative Society Email Engine';
+  const now = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+
+  const contentHtml = `
+    <p>Hello Admin,</p>
+    <p>This is a test notification confirming that the <strong>Automated Email Notification System</strong> for <strong>Mahadev Co-operative (T&C) Society Ltd.</strong> is functioning properly.</p>
+
+    <div class="card">
+      <table class="table-data">
+        <tr><td class="label">SMTP Gateway</td><td class="val">${process.env.SMTP_HOST || 'Gmail / App Password'}</td></tr>
+        <tr><td class="label">Sender Address</td><td class="val">${process.env.EMAIL_USER || 'mahadevsociety2026@gmail.com'}</td></tr>
+        <tr><td class="label">Timestamp</td><td class="val">${now}</td></tr>
+        <tr><td class="label">Status</td><td class="val" style="color: #059669;">✅ Operational & Verified</td></tr>
+      </table>
+    </div>
+
+    <p>All automated triggers (Registration Approvals, Loan Sanction receipts, Monthly EMI debits, and Helpdesk responses) are connected and ready.</p>
+  `;
+
+  const html = wrapHtmlTemplate({
+    title,
+    subtitle,
+    contentHtml,
+    actionButton: { text: '🏛️ Open Society Portal', url: 'http://localhost:3000' },
+  });
+
+  return sendEmail({
+    to,
+    subject: `⚡ SMTP Connection Test - Mahadev Co-operative Society (${now})`,
+    html,
+  });
+};
+
+// ── 7. VERIFY CONNECTION HEALTH ──
+const verifyEmailConfig = async () => {
+  const transporter = getTransporter();
+  if (!transporter) {
+    return { configured: false, message: 'SMTP credentials pending in .env (Mock mode active).' };
   }
+  try {
+    await transporter.verify();
+    return { configured: true, message: 'SMTP Gateway connected and ready.' };
+  } catch (err) {
+    return { configured: false, error: err.message };
+  }
+};
+
+module.exports = {
+  sendEmail,
+  sendWelcomeApprovalEmail,
+  sendPasswordResetEmail,
+  sendLoanSanctionEmail,
+  sendMonthlyReceiptEmail,
+  sendHelpdeskReplyEmail,
+  sendTestEmail,
+  verifyEmailConfig,
 };

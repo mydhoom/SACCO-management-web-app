@@ -160,8 +160,32 @@ exports.replyToThread = async (req, res) => {
       }
     }
 
+    
     await thread.save();
     const savedMessage = thread.messages[thread.messages.length - 1];
+
+    // ── AUTOMATED EMAIL NOTIFICATION ON ADMIN REPLY ──
+    if (role !== "member") {
+      User.findById(thread.memberId)
+        .select('name email emailId vendorNo')
+        .then((memberUser) => {
+          const targetEmail = memberUser?.email || memberUser?.emailId;
+          if (targetEmail) {
+            const { sendHelpdeskReplyEmail } = require('../utils/emailService');
+            sendHelpdeskReplyEmail({
+              to: targetEmail,
+              name: thread.memberName || memberUser?.name || 'Member',
+              ticketNo: thread.ticketId,
+              subject: thread.subject,
+              userMessage: thread.messages[0]?.content || '',
+              adminReply: textContent,
+              adminName: req.user?.name || 'Society Administration',
+            }).catch((err) => console.error('Automated Helpdesk Email Dispatch Error:', err.message));
+          }
+        })
+        .catch((e) => console.error('Member lookup for email notification failed:', e.message));
+    }
+
     return res.status(200).json({ success: true, message: "Reply sent.", data: savedMessage });
   } catch (err) {
     console.error("replyToThread:", err);
@@ -215,5 +239,108 @@ exports.getUnreadCount = async (req, res) => {
   } catch (err) {
     console.error("getUnreadCount:", err);
     return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+// ─── GET /api/communication/email/status (Check SMTP Gateway & Configuration) ─
+exports.getEmailStatus = async (req, res) => {
+  try {
+    const { verifyEmailConfig } = require("../utils/emailService");
+    const isConfigured = !!(process.env.EMAIL_USER && (process.env.EMAIL_PASS || process.env.SMTP_HOST));
+    const sender = process.env.EMAIL_USER || "mahadevsociety2026@gmail.com";
+    const host = process.env.SMTP_HOST || "Gmail (Standard)";
+
+    let liveStatus = { configured: isConfigured, host, sender };
+
+    if (isConfigured && process.env.EMAIL_PASS) {
+      const verification = await verifyEmailConfig();
+      liveStatus = { ...liveStatus, ...verification };
+    } else {
+      liveStatus.message = "SMTP credentials pending in .env (Mock mode active - logs previews to console).";
+    }
+
+    return res.status(200).json({ success: true, status: liveStatus });
+  } catch (error) {
+    console.error("getEmailStatus Error:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ─── POST /api/communication/email/test (Dispatch a test email to target) ───
+exports.sendTestEmail = async (req, res) => {
+  try {
+    const { sendTestEmail } = require("../utils/emailService");
+    const targetEmail = req.body.toEmail || req.user?.email || process.env.EMAIL_USER || "mahadevsociety2026@gmail.com";
+    const result = await sendTestEmail({ to: targetEmail });
+
+    if (result.success) {
+      return res.status(200).json({
+        success: true,
+        message: result.mock
+          ? `[Mock Email Dispatched] Logged preview for ${targetEmail}. (Add EMAIL_PASS in .env to send live emails)`
+          : `✅ Live test email dispatched to ${targetEmail}!`,
+        details: result,
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        error: result.error || "Failed to dispatch test email. Please check your SMTP credentials.",
+      });
+    }
+  } catch (error) {
+    console.error("sendTestEmail Error:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ─── POST /api/communication/email/broadcast (Send circular to members) ────
+exports.broadcastNotice = async (req, res) => {
+  try {
+    const { sendEmail } = require("../utils/emailService");
+    const { subject, message, filterRole, circle } = req.body;
+
+    if (!subject || !message) {
+      return res.status(400).json({ error: "Subject and message are required." });
+    }
+
+    const query = { status: "approved" };
+    if (filterRole) query.role = filterRole;
+    if (circle) query.circle = circle;
+
+    const members = await User.find(query).select("name email emailId vendorNo");
+    const validRecipients = members.filter((m) => m.email || m.emailId);
+
+    if (validRecipients.length === 0) {
+      return res.status(400).json({ error: "No approved members found with registered email addresses." });
+    }
+
+    let dispatchedCount = 0;
+    for (const member of validRecipients) {
+      const emailAddr = member.email || member.emailId;
+      await sendEmail({
+        to: emailAddr,
+        subject: `📢 Society Notice: ${subject}`,
+        text: message,
+        html: `
+          <div style="font-family: 'Segoe UI', sans-serif; padding: 24px; color: #1e293b; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0;">
+            <h3 style="color: #0284c7; margin-top: 0;">📢 Mahadev Co-operative Society Circular</h3>
+            <p>Dear <strong>${member.name}</strong> (Vendor: <code>${member.vendorNo}</code>),</p>
+            <div style="background: #f8fafc; padding: 18px; border-radius: 8px; border-left: 4px solid #0284c7; margin: 18px 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${message}</div>
+            <p style="font-size: 12px; color: #64748b; margin-bottom: 0;">— Issued by Society Administration</p>
+          </div>
+        `,
+      });
+      dispatchedCount++;
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Broadcast message sent/queued for ${dispatchedCount} members.`,
+      dispatchedCount,
+    });
+  } catch (error) {
+    console.error("broadcastNotice Error:", error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 };

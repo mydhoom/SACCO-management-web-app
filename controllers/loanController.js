@@ -178,9 +178,19 @@ exports.updateLoanStatus = async (req, res) => {
     }
 
     // Send Email Notification
-    if (fetchedUser && fetchedUser.emailId && (status === 'APPROVED' || status === 'REJECTED')) {
-      const { sendLoanNotification } = require('../utils/emailService');
-      sendLoanNotification(fetchedUser.emailId, fetchedUser.name, grossAmount, status);
+    if (fetchedUser && (fetchedUser.email || fetchedUser.emailId) && status === 'APPROVED') {
+      const { sendLoanSanctionEmail } = require('../utils/emailService');
+      sendLoanSanctionEmail({
+        to: fetchedUser.email || fetchedUser.emailId,
+        name: fetchedUser.name || exactMemberName,
+        vendorNo: exactVendorNo,
+        loanId: loan.loanId || loan._id,
+        loanAmount: grossAmount,
+        emiAmount: fetchedUser.monthlyEmiAmount,
+        tenure: loan.tenure || totalMonths,
+        interestRate: loan.interestRate || 10,
+        disbursementDate: loan.disbursalDate || new Date(),
+      }).catch(err => console.error('Loan sanction email error:', err.message));
     }
 
     res.status(200).json({ message: "Loan status updated and ledger entries created!", loan });
