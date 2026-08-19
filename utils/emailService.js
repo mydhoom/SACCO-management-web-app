@@ -9,7 +9,7 @@ const nodemailer = require('nodemailer');
 // Initialize SMTP Transporter
 const getTransporter = () => {
   const user = process.env.EMAIL_USER;
-  const pass = process.env.EMAIL_PASS;
+  const pass = process.env.EMAIL_PASS ? process.env.EMAIL_PASS.replace(/\s+/g, '') : '';
   const host = process.env.SMTP_HOST;
   const port = Number(process.env.SMTP_PORT) || 587;
   const secure = process.env.SMTP_SECURE === 'true' || port === 465;
@@ -26,10 +26,13 @@ const getTransporter = () => {
   }
 
   if (user && pass) {
-    // Standard Gmail Service
+    // High-performance Gmail Direct SSL (Port 465)
     return nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
       auth: { user, pass },
+      tls: { rejectUnauthorized: false },
     });
   }
 
