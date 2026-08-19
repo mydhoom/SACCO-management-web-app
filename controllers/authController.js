@@ -455,24 +455,26 @@ const purgeDatabase = async (req, res) => {
       return res.status(401).json({ success: false, message: "Invalid admin password. Purge aborted." });
     }
 
-    // Build the Date Filter
-    let dateQuery = {};
-    if (dateCondition !== 'ALL') {
+    // Helper to build flexible date query for documents that use createdAt, startDate, or transactionDate
+    const buildDateQuery = (fieldNames) => {
+      if (dateCondition === 'ALL' || !dateCondition) return {};
+      let dateRange = {};
       if (dateCondition === 'BEFORE' && startDateTime) {
-        dateQuery = { createdAt: { $lt: new Date(startDateTime) } };
-      } 
-      else if (dateCondition === 'AFTER' && startDateTime) {
-        dateQuery = { createdAt: { $gt: new Date(startDateTime) } };
-      } 
-      else if (dateCondition === 'BETWEEN' && startDateTime && endDateTime) {
-        dateQuery = { 
-          createdAt: { 
-            $gte: new Date(startDateTime), 
-            $lte: new Date(endDateTime) 
-          } 
-        };
+        dateRange = { $lt: new Date(startDateTime) };
+      } else if (dateCondition === 'AFTER' && startDateTime) {
+        dateRange = { $gt: new Date(startDateTime) };
+      } else if (dateCondition === 'BETWEEN' && startDateTime && endDateTime) {
+        dateRange = { $gte: new Date(startDateTime), $lte: new Date(endDateTime) };
       }
-    }
+      if (Object.keys(dateRange).length === 0) return {};
+      return {
+        $or: fieldNames.map(f => ({ [f]: dateRange }))
+      };
+    };
+
+    const txDateQuery = buildDateQuery(['createdAt', 'transactionDate', 'date']);
+    const loanDateQuery = buildDateQuery(['createdAt', 'startDate', 'disbursalDate']);
+    const userDateQuery = buildDateQuery(['createdAt']);
 
     const details = { transactionsDeleted: 0, loansDeleted: 0, usersDeleted: 0 };
 
@@ -494,15 +496,11 @@ const purgeDatabase = async (req, res) => {
         return res.status(404).json({ success: false, message: "Selected member not found." });
       }
 
-      if (targetMember.role === 'admin') {
-        return res.status(403).json({ success: false, message: "Security Violation: Admin accounts cannot be purged or deleted." });
-      }
-
       // 1. Transactions for this member
       if (collections.includes('TRANSACTIONS') || collections.includes('PROFILE')) {
         const txQuery = { 
           $or: [{ vendorNo: targetMember.vendorNo }, { memberId: targetMember._id }],
-          ...dateQuery
+          ...txDateQuery
         };
         const txRes = await TransactionLog.deleteMany(txQuery);
         details.transactionsDeleted = txRes.deletedCount;
@@ -510,13 +508,22 @@ const purgeDatabase = async (req, res) => {
 
       // 2. Loans for this member
       if (collections.includes('LOANS') || collections.includes('PROFILE')) {
-        const loanQuery = { memberId: targetMember._id, ...dateQuery };
+        const loanQuery = { memberId: targetMember._id, ...loanDateQuery };
         const loanRes = await Loan.deleteMany(loanQuery);
         details.loansDeleted = loanRes.deletedCount;
+
+        // Reset member loan balances
+        await User.updateOne(
+          { _id: targetMember._id },
+          { $set: { activeLoanAmount: 0, pendingLoanBalance: 0, monthlyEmiAmount: 0 } }
+        );
       }
 
-      // 3. Complete Profile deletion
+      // 3. Complete Profile deletion (strictly protect admin accounts from deletion)
       if (collections.includes('PROFILE') || collections.includes('USERS')) {
+        if (targetMember.role === 'admin') {
+          return res.status(403).json({ success: false, message: "Security Violation: Admin account profiles cannot be deleted. (Loans & Transactions were purged)." });
+        }
         const userRes = await User.deleteOne({ _id: targetMember._id });
         details.usersDeleted = userRes.deletedCount;
       }
@@ -536,16 +543,22 @@ const purgeDatabase = async (req, res) => {
 
     // --- SCOPE: GLOBAL PURGE ---
     if (collections.includes('TRANSACTIONS')) {
-      const result = await TransactionLog.deleteMany(dateQuery);
+      const result = await TransactionLog.deleteMany(txDateQuery);
       details.transactionsDeleted = result.deletedCount;
     }
     if (collections.includes('LOANS')) {
-      const result = await Loan.deleteMany(dateQuery);
+      const result = await Loan.deleteMany(loanDateQuery);
       details.loansDeleted = result.deletedCount;
+
+      // Reset loan balances across all users
+      await User.updateMany(
+        {},
+        { $set: { activeLoanAmount: 0, pendingLoanBalance: 0, monthlyEmiAmount: 0 } }
+      );
     }
     if (collections.includes('USERS')) {
       // CRITICAL: Never delete the admin account!
-      const userQuery = { ...dateQuery, role: { $ne: 'admin' } }; 
+      const userQuery = { ...userDateQuery, role: { $ne: 'admin' } }; 
       const result = await User.deleteMany(userQuery);
       details.usersDeleted = result.deletedCount;
     }
