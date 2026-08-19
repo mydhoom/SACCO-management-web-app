@@ -74,6 +74,18 @@ export const getRemainingServiceText = (retirementDateString) => {
   return `⏳ ${years} Yrs ${months} Mos remaining (${totalMonths} months tenure limit)`
 }
 
+// ── AGE DISPLAY HELPER ──
+export const getAgeDisplay = (dobString) => {
+  if (!dobString) return ''
+  const dob = new Date(dobString)
+  if (isNaN(dob.getTime())) return ''
+  const now = new Date()
+  let age = now.getFullYear() - dob.getFullYear()
+  const m = now.getMonth() - dob.getMonth()
+  if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) age--
+  return age > 0 ? `${age} Yrs Old` : ''
+}
+
 export default function UserProfile() {
   const userRole = localStorage.getItem('userRole') || 'member'
   const isAdmin = userRole === 'admin' || userRole === 'executive'
@@ -311,8 +323,39 @@ export default function UserProfile() {
   // ── SUBMIT ──
   const handleSubmit = async (e) => {
     e.preventDefault()
-    setIsLoading(true)
     setMessage({ type: '', text: '' })
+
+    // ── CLIENT VALIDATION: BANKING ──
+    const rawAcc = (formData.accountNumber || '').trim()
+    const rawConfirmAcc = (formData.confirmAccountNumber || '').trim()
+    if (rawAcc) {
+      if (!/^\d{9,18}$/.test(rawAcc)) {
+        setMessage({ type: 'danger', text: '❌ Invalid Bank Account Number. It must contain only digits and be between 9 and 18 digits long.' })
+        setActiveTab(6)
+        return
+      }
+      if (rawConfirmAcc && rawAcc !== rawConfirmAcc) {
+        setMessage({ type: 'danger', text: '❌ Bank Account Number and Confirmation Account Number do not match!' })
+        setActiveTab(6)
+        return
+      }
+    }
+
+    const rawIfsc = (formData.ifscCode || '').trim().toUpperCase()
+    if (rawIfsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(rawIfsc)) {
+      setMessage({ type: 'danger', text: "❌ Invalid IFSC Code. Format must be 4 letters, '0', followed by 6 alphanumeric characters (e.g. SBIN0000718)." })
+      setActiveTab(6)
+      return
+    }
+
+    const rawUpi = (formData.upiId || '').trim()
+    if (rawUpi && !/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(rawUpi)) {
+      setMessage({ type: 'danger', text: '❌ Invalid UPI ID. Format must be username@bankhandle (e.g. 9876543210@paytm, name@sbi).' })
+      setActiveTab(6)
+      return
+    }
+
+    setIsLoading(true)
     try {
       let finalImageUrl = previewPhoto
       if (photoFile) {
@@ -338,7 +381,7 @@ export default function UserProfile() {
         if (data.user?.profilePictureUrl) localStorage.setItem('userAvatar', data.user.profilePictureUrl)
         window.dispatchEvent(new Event('profileUpdated'))
       } else {
-        setMessage({ type: 'danger', text: data.message || 'Error updating profile.' })
+        setMessage({ type: 'danger', text: data.error || data.message || 'Error updating profile.' })
       }
     } catch (err) {
       console.error(err)
