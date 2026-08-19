@@ -65,6 +65,18 @@ app.use("/api", apiLimiter);
 // ==========================================
 // 2. CORE APPLICATION ROUTES
 // ==========================================
+
+// ==========================================
+// 1.5 ROOT HEALTH CHECK
+// ==========================================
+app.get("/", (req, res) => {
+  res.status(200).json({
+    status: "online",
+    service: "Mahadev Co-operative Society API Gateway",
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.use("/api/auth", authRoutes);
 app.use("/api/members", memberRoutes);
 app.use("/api/loans", loanRoutes);
