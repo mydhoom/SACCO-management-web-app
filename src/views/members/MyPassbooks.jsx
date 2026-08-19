@@ -832,6 +832,50 @@ const MyPassbooks = () => {
                 {/* ========================================== */}
                 {activeSubView === 'loan' && (
                   <div className="animate__animated animate__fadeIn">
+                    {/* Account & Capital Summary Cards */}
+                    {userData && !selectedLoan && (
+                      <CRow className="mb-4 align-items-stretch d-print-none">
+                        <CCol md={6} className="mb-3 mb-md-0">
+                          <CCard className="bg-success bg-opacity-10 border border-success h-100">
+                            <CCardBody className="p-3">
+                              <div className="small text-success fw-bold text-uppercase mb-2">📋 Member Details</div>
+                              <div className="mb-3">
+                                <small className="text-muted">Vendor Number / ID</small>
+                                <h5 className="text-dark fw-bold mb-0">{userData.vendorNo || 'N/A'}</h5>
+                              </div>
+                              <div className="row">
+                                <div className="col-6">
+                                  <small className="text-muted">Status</small>
+                                  <div><CBadge color={userData.status?.toUpperCase() === 'APPROVED' || userData.status?.toUpperCase() === 'ACTIVE' ? 'success' : 'warning'}>{userData.status}</CBadge></div>
+                                </div>
+                                <div className="col-6 text-end">
+                                  <small className="text-muted">Member Name</small>
+                                  <h6 className="text-dark fw-bold mb-0">{userData.name}</h6>
+                                </div>
+                              </div>
+                            </CCardBody>
+                          </CCard>
+                        </CCol>
+                        <CCol md={6}>
+                          <CCard className="bg-primary bg-opacity-10 border border-primary h-100">
+                            <CCardBody className="p-3">
+                              <div className="small text-primary fw-bold text-uppercase mb-2">💰 Capital & Loan Summary</div>
+                              <div className="row">
+                                <div className="col-6">
+                                  <small className="text-muted">Total Share Capital</small>
+                                  <h5 className="text-primary fw-bold mb-0">₹{(userData.currentShareMoneyTotal || 0).toLocaleString('en-IN')}</h5>
+                                </div>
+                                <div className="col-6 text-end">
+                                  <small className="text-muted">Total Loan Outstanding</small>
+                                  <h5 className="text-danger fw-bold mb-0">₹{loanOutstanding.toLocaleString('en-IN')}</h5>
+                                </div>
+                              </div>
+                            </CCardBody>
+                          </CCard>
+                        </CCol>
+                      </CRow>
+                    )}
+
                     {activeLoans.length > 0 ? (
                       !selectedLoan ? (
                         <div>
@@ -908,70 +952,53 @@ const MyPassbooks = () => {
                             <CCardBody className="p-4">
                               <CRow>
                                 <CCol md={4} className="border-end">
-                                  <small className="text-danger fw-bold text-uppercase">🏦 Loan Account</small>
-                                  <h5 className="text-dark fw-bold mb-1">{activeLoan.loanId || 'Processing...'}</h5>
-                                  <small className="text-muted">Rate: <span className="fw-bold text-dark">{activeLoan.interestRate || 10}% p.a.</span></small>
-                                </CCol>
-                                <CCol md={4} className="border-end px-md-4">
-                                  <small className="text-muted">Original Loan Amount</small>
-                                  <h4 className="text-dark fw-bold mb-1">₹{Number(activeLoan.loanAmount || 0).toLocaleString('en-IN')}</h4>
-                                  <small className="text-muted">Tenure: <span className="fw-bold text-dark">{activeLoan.tenure || 12} Months</span></small>
-                                </CCol>
-                                <CCol md={4} className="px-md-4">
-                                  <small className="text-muted">Total Outstanding Principal</small>
-                                  <h3 className="text-danger fw-bold mb-0">
-                                    ₹{Number(activeLoan.principalPending !== undefined ? activeLoan.principalPending : activeLoan.loanAmount).toLocaleString('en-IN')}
-                                  </h3>
-                                </CCol>
-                              </CRow>
-                              <CRow className="mt-4 text-center">
-                                <CCol md={4} className="mb-3 mb-md-0">
-                                  <div className="bg-white rounded border p-3 h-100 shadow-sm">
-                                    <small className="text-muted">Total Paid</small>
-                                    <div className="fw-bold fs-5 text-success">₹{loanTotals.totalPaid.toLocaleString('en-IN')}</div>
+                                  <div className="small text-danger fw-bold text-uppercase mb-2">Loan Reference</div>
+                                  <h4 className="text-dark fw-bold mb-1">{activeLoan.loanId}</h4>
+                                  <div className="d-flex align-items-center gap-2 mt-2">
+                                    <CBadge color={activeLoan.status === 'APPROVED' ? 'success' : 'primary'}>{activeLoan.status}</CBadge>
+                                    <small className="text-muted">Issued: {new Date(activeLoan.startDate || activeLoan.createdAt).toLocaleDateString('en-IN')}</small>
                                   </div>
                                 </CCol>
-                                <CCol md={4} className="mb-3 mb-md-0">
-                                  <div className="bg-white rounded border p-3 h-100 shadow-sm">
-                                    <small className="text-muted">Interest Paid</small>
-                                    <div className="fw-bold fs-5 text-danger">₹{loanTotals.totalInterest.toLocaleString('en-IN')}</div>
+                                <CCol md={4} className="border-end">
+                                  <div className="small text-danger fw-bold text-uppercase mb-2">Balance Overview</div>
+                                  <div className="d-flex justify-content-between mb-1">
+                                    <span className="text-muted">Total Sanctioned:</span>
+                                    <strong className="text-dark">₹{Number(activeLoan.loanAmount || 0).toLocaleString('en-IN')}</strong>
+                                  </div>
+                                  <div className="d-flex justify-content-between mb-1">
+                                    <span className="text-muted">Principal Pending:</span>
+                                    <strong className="text-danger">₹{Number(activeLoan.principalPending !== undefined ? activeLoan.principalPending : activeLoan.loanAmount || 0).toLocaleString('en-IN')}</strong>
+                                  </div>
+                                  <div className="d-flex justify-content-between">
+                                    <span className="text-muted">Interest Rate:</span>
+                                    <strong className="text-info">{activeLoan.interestRate || 10}% p.a.</strong>
                                   </div>
                                 </CCol>
                                 <CCol md={4}>
-                                  <div className="bg-white rounded border p-3 h-100 shadow-sm">
-                                    <small className="text-muted">Remaining Due</small>
-                                    <div className="fw-bold fs-5 text-warning">₹{loanTotals.totalDue.toLocaleString('en-IN')}</div>
-                                  </div>
-                                </CCol>
-                              </CRow>
-                              <CRow className="mt-4 d-print-none">
-                                <CCol>
-                                  <div className="small text-muted mb-2">Loan repayment progress</div>
-                                  <div className="progress rounded-pill shadow-sm" style={{ height: '20px', backgroundColor: '#e9ecef' }}>
-                                    <div
-                                      className="progress-bar bg-success"
-                                      role="progressbar"
-                                      style={{ width: `${loanPaidPercent}%` }}
-                                      aria-valuenow={loanPaidPercent}
-                                      aria-valuemin="0"
-                                      aria-valuemax="100"
-                                    >
-                                      {loanPaidPercent}% paid
-                                    </div>
-                                  </div>
+                                  <div className="small text-danger fw-bold text-uppercase mb-2">Monthly Commitment</div>
+                                  <h3 className="text-danger fw-bold mb-1">
+                                    ₹{Number(activeLoan.emiAmount || activeLoan.monthlyEMI || 0).toLocaleString('en-IN')}
+                                    <span className="fs-6 text-muted fw-normal"> / mo</span>
+                                  </h3>
+                                  <small className="text-muted">Tenure: {activeLoan.tenure || 12} Months</small>
                                 </CCol>
                               </CRow>
                             </CCardBody>
                           </CCard>
 
                           {/* Action Buttons & Filter */}
-                          <CRow className="mb-4 d-print-none">
+                          <CRow className="mb-4 d-print-none align-items-center">
                             <CCol md={8} className="d-flex gap-2 flex-wrap mb-3 mb-md-0">
-                              <CButton color="danger" size="sm" className="fw-bold shadow-sm" onClick={handleExportPDF}>
-                                <CIcon icon={cilCloudDownload} className="me-2"/>Export Statement
+                              <CButton color="primary" size="sm" className="fw-bold shadow-sm" onClick={handleExportPDF}>
+                                <CIcon icon={cilCloudDownload} className="me-2"/>Export Loan Statement
                               </CButton>
-                              <CButton color="success" size="sm" className="fw-bold shadow-sm text-white" onClick={() => setPrepaymentModal(true)}>
-                                <CIcon icon={cilMoney} className="me-2"/>Custom Payment
+                              <CButton 
+                                color="success" 
+                                size="sm" 
+                                className="fw-bold shadow-sm text-white" 
+                                onClick={() => setPrepaymentModal(true)}
+                              >
+                                ⚡ Make Prepayment
                               </CButton>
                               <CButton
                                 color="warning"
@@ -1105,16 +1132,55 @@ const MyPassbooks = () => {
                         </div>
                       )
                     ) : (
-                      <CAlert color="success" className="text-center p-5 mt-2 d-print-none shadow-sm border-success">
-                        <CIcon icon={cilCheckCircle} size="3xl" className="mb-3 text-success"/>
-                        <h4>No Active Loans</h4>
-                        <p className="text-muted">You do not currently have any active loans with the society.</p>
-                        {shareBalance > 0 ? (
-                          <CButton color="warning" size="sm" className="fw-bold mt-3" onClick={() => openWithdrawModal('SHARE')}>
-                            <CIcon icon={cilMoney} className="me-2"/>Request Share Withdrawal
+                      <div className="text-center p-5 mt-2 bg-light rounded-3 border d-print-none shadow-sm">
+                        <div className="mb-3">
+                          <CIcon icon={cilCheckCircle} size="3xl" className="text-success" />
+                        </div>
+                        <h4 className="fw-bold text-dark mb-2">No Active Loans</h4>
+                        <p className="text-muted mb-3">
+                          Your account currently has no active loans or pending EMIs.
+                        </p>
+                        <div className="d-inline-flex align-items-center gap-3 p-3 bg-white rounded-3 border mb-4 shadow-xs flex-wrap justify-content-center">
+                          <div className="text-start">
+                            <small className="text-muted text-uppercase fw-semibold d-block">Share Capital</small>
+                            <span className="fs-5 fw-bold text-success">₹{(userData?.currentShareMoneyTotal || 0).toLocaleString('en-IN')}</span>
+                          </div>
+                          <div className="border-start ps-3 text-start">
+                            <small className="text-muted text-uppercase fw-semibold d-block">RD Balance</small>
+                            <span className="fs-5 fw-bold text-primary">₹{(userData?.rdBalance || 0).toLocaleString('en-IN')}</span>
+                          </div>
+                          <div className="border-start ps-3 text-start">
+                            <small className="text-muted text-uppercase fw-semibold d-block">Loan Outstanding</small>
+                            <span className="fs-5 fw-bold text-muted">₹0</span>
+                          </div>
+                        </div>
+                        <div className="d-flex justify-content-center gap-2 flex-wrap">
+                          <CButton
+                            color="primary"
+                            className="text-white fw-bold shadow-sm"
+                            onClick={() => navigate('/loan-services/apply-loan')}
+                          >
+                            Apply for a Loan
                           </CButton>
-                        ) : null}
-                      </CAlert>
+                          <CButton
+                            color="secondary"
+                            variant="outline"
+                            className="fw-bold"
+                            onClick={() => navigate('/my-accounts/rd-passbook')}
+                          >
+                            View RD Passbook
+                          </CButton>
+                          {shareBalance > 0 && (
+                            <CButton
+                              color="warning"
+                              className="fw-bold text-white shadow-sm"
+                              onClick={() => openWithdrawModal('SHARE')}
+                            >
+                              <CIcon icon={cilMoney} className="me-1" /> Request Share Withdrawal
+                            </CButton>
+                          )}
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}
