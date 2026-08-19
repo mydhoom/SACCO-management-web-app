@@ -830,11 +830,14 @@ const UpdateData = () => {
                     });
                     const result = await response.json();
                     if (response.ok) {
-                      let msg = `Processed ${result.results?.successCount} loans.`;
-                      if (result.results?.errorCount > 0) {
-                        msg += ` Failed ${result.results.errorCount} rows. Reason: ${result.results.errors[0]}`;
+                      let msg = `✅ Successfully imported ${result.results?.successCount} loans.`;
+                      if (result.results?.warningCount > 0) {
+                        msg += ` ⚠️ ${result.results.warningCount} auto-adjustments (e.g. ${result.results.warnings[0]})`;
                       }
-                      setAlerts({ ...alerts, hist_loans: { type: result.results?.successCount > 0 ? 'success' : 'danger', text: msg } });
+                      if (result.results?.errorCount > 0) {
+                        msg += ` ❌ ${result.results.errorCount} skipped rows. (e.g. ${result.results.errors[0]})`;
+                      }
+                      setAlerts({ ...alerts, hist_loans: { type: result.results?.successCount > 0 ? 'success' : 'warning', text: msg } });
                     } else {
                       setAlerts({ ...alerts, hist_loans: { type: 'danger', text: result.message || 'Upload failed.' } });
                     }
