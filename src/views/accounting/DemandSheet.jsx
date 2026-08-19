@@ -267,22 +267,26 @@ const DemandSheet = () => {
 
             <div className="d-flex align-items-center gap-2 flex-wrap">
               {/* Month Selector */}
-              <CInputGroup size="sm" style={{ width: 160 }}>
-                <CInputGroupText className="fw-semibold">Month</CInputGroupText>
+              <CInputGroup size="sm" style={{ width: 220, minWidth: 200 }}>
+                <CInputGroupText className="fw-bold bg-light">Month</CInputGroupText>
                 <CFormSelect
                   value={selectedMonth}
                   onChange={e => setSelectedMonth(e.target.value)}
+                  className="fw-semibold text-dark"
+                  style={{ cursor: 'pointer' }}
                 >
                   {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
                 </CFormSelect>
               </CInputGroup>
 
               {/* Year Selector */}
-              <CInputGroup size="sm" style={{ width: 130 }}>
-                <CInputGroupText className="fw-semibold">Year</CInputGroupText>
+              <CInputGroup size="sm" style={{ width: 160, minWidth: 145 }}>
+                <CInputGroupText className="fw-bold bg-light">Year</CInputGroupText>
                 <CFormSelect
                   value={selectedYear}
                   onChange={e => setSelectedYear(Number(e.target.value))}
+                  className="fw-semibold text-dark"
+                  style={{ cursor: 'pointer' }}
                 >
                   {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
                 </CFormSelect>
@@ -290,7 +294,7 @@ const DemandSheet = () => {
 
               {/* Rate */}
               <CInputGroup size="sm" style={{ width: 160 }}>
-                <CInputGroupText>Rate %</CInputGroupText>
+                <CInputGroupText className="fw-semibold">Rate %</CInputGroupText>
                 <CFormInput
                   type="number" step="0.01" min="0"
                   value={(annualRate * 100).toFixed(2)}
@@ -311,7 +315,7 @@ const DemandSheet = () => {
 
               <CButton
                 size="sm"
-                className="text-white fw-bold"
+                className="text-white fw-bold shadow-sm"
                 style={{ background: 'linear-gradient(135deg,#4361ee,#7209b7)', border: 'none' }}
                 disabled={demandData.length === 0}
                 onClick={() => { setTransferResult(null); setTransferError(''); setShowTransferModal(true); }}
@@ -330,36 +334,51 @@ const DemandSheet = () => {
               </div>
             ) : (
               <>
-                {/* Summary Banner */}
-                <div className="d-flex flex-wrap gap-3 mb-4 p-3 rounded-3 border"
-                  style={{ background: 'linear-gradient(135deg,#f0f4ff,#faf0ff)' }}>
-                  <div className="d-flex flex-column align-items-center px-3 border-end">
-                    <span className="text-muted small fw-semibold">Members</span>
-                    <span className="fs-4 fw-bold text-dark">{demandData.length}</span>
-                  </div>
-                  <div className="d-flex flex-column align-items-center px-3 border-end">
-                    <span className="text-muted small fw-semibold">Total RD</span>
-                    <span className="fs-5 fw-bold text-primary">{fmt(totals.totalRD)}</span>
-                  </div>
-                  <div className="d-flex flex-column align-items-center px-3 border-end">
-                    <span className="text-muted small fw-semibold">Loan Principal</span>
-                    <span className="fs-5 fw-bold text-info">{fmt(totals.totalPrincipal)}</span>
-                  </div>
-                  <div className="d-flex flex-column align-items-center px-3 border-end">
-                    <span className="text-muted small fw-semibold">Loan Interest</span>
-                    <span className="fs-5 fw-bold text-warning">{fmt(totals.totalInterest)}</span>
-                  </div>
-                  <div className="d-flex flex-column align-items-center px-3">
-                    <span className="text-muted small fw-semibold">Grand Total Recovery</span>
-                    <span className="fs-4 fw-bold text-danger">{fmt(totals.grand)}</span>
-                  </div>
-                  <div className="d-flex align-items-center ms-auto">
+                {/* Summary Banner - Full Width Expanded Grid */}
+                <div className="mb-4 p-3 rounded-3 border bg-white shadow-sm" style={{ background: '#f8fafc' }}>
+                  <div className="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom flex-wrap gap-2">
+                    <div className="d-flex align-items-center gap-2">
+                      <span className="fw-bold small text-muted text-uppercase">📊 Demand Recovery Metrics ({selectedMonth} {selectedYear})</span>
+                    </div>
                     <CBadge
-                      style={{ background: 'linear-gradient(135deg,#4361ee,#7209b7)', fontSize: 13 }}
-                      className="px-3 py-2 text-white"
+                      style={{ background: 'linear-gradient(135deg,#4361ee,#7209b7)', fontSize: '0.82rem' }}
+                      className="px-3 py-2 text-white shadow-sm"
                     >
                       Batch ID: {batchId}
                     </CBadge>
+                  </div>
+
+                  <div className="row g-3">
+                    <div className="col-6 col-md-4 col-xl-2">
+                      <div className="p-3 rounded-3 text-center h-100 border bg-light shadow-xs">
+                        <div className="text-muted small fw-semibold text-uppercase">Members</div>
+                        <div className="fs-4 fw-bold text-dark mt-1">{demandData.length}</div>
+                      </div>
+                    </div>
+                    <div className="col-6 col-md-4 col-xl-2">
+                      <div className="p-3 rounded-3 text-center h-100 border bg-light shadow-xs">
+                        <div className="text-muted small fw-semibold text-uppercase">Total RD</div>
+                        <div className="fs-5 fw-bold text-primary mt-1">{fmt(totals.totalRD)}</div>
+                      </div>
+                    </div>
+                    <div className="col-6 col-md-4 col-xl-2">
+                      <div className="p-3 rounded-3 text-center h-100 border bg-light shadow-xs">
+                        <div className="text-muted small fw-semibold text-uppercase">Loan Principal</div>
+                        <div className="fs-5 fw-bold text-info mt-1">{fmt(totals.totalPrincipal)}</div>
+                      </div>
+                    </div>
+                    <div className="col-6 col-md-4 col-xl-3">
+                      <div className="p-3 rounded-3 text-center h-100 border bg-light shadow-xs">
+                        <div className="text-muted small fw-semibold text-uppercase">Loan Interest</div>
+                        <div className="fs-5 fw-bold text-warning mt-1">{fmt(totals.totalInterest)}</div>
+                      </div>
+                    </div>
+                    <div className="col-12 col-md-8 col-xl-3">
+                      <div className="p-3 rounded-3 text-center h-100 border" style={{ background: '#fef2f2', borderColor: '#fecaca' }}>
+                        <div className="text-danger small fw-bold text-uppercase">Grand Total Recovery</div>
+                        <div className="fs-4 fw-bold text-danger mt-1">{fmt(totals.grand)}</div>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
