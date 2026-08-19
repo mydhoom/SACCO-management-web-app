@@ -39,6 +39,7 @@ const userSchema = new mongoose.Schema({
   // --- 5. Dates & Timelines ---
   dob: { type: Date, default: null },             // Date of Birth (UserProfile.jsx key)
   dateOfBirth: { type: Date, default: null },     // legacy alias
+  retirementAge: { type: Number, enum: [58, 60], default: 58 }, // Service tenure age (58 or 60 Years)
   joiningDate: { type: Date, default: null },
   dateOfJoining: { type: Date, default: null },   // legacy alias
   retirementDate: { type: Date, default: null },

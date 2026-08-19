@@ -218,10 +218,28 @@ const updateUserStatus = async (req, res) => {
   }
 };
 
-// --- NEW: GET PROFILE LOGIC ---
+// Helper: Calculate Exact Date of Retirement (Last day of birth month, with 1st of month rule)
+const computeRetirementDate = (dobDate, retirementAge = 58) => {
+  if (!dobDate) return null;
+  const dob = new Date(dobDate);
+  if (isNaN(dob.getTime())) return null;
+
+  const birthDay = dob.getDate();
+  const birthMonth = dob.getMonth(); // 0-indexed
+  const birthYear = dob.getFullYear();
+  const age = Number(retirementAge) === 60 ? 60 : 58;
+  const retYear = birthYear + age;
+
+  // Rule: If born on 1st of month, retires on last day of previous month.
+  // Otherwise, retires on last day of birth month.
+  return birthDay === 1
+    ? new Date(retYear, birthMonth, 0)
+    : new Date(retYear, birthMonth + 1, 0);
+};
+
+// --- GET PROFILE LOGIC ---
 const getProfile = async (req, res) => {
   try {
-    // req.user comes from your 'authenticate' middleware
     const userId = req.user.id || req.user._id;
 
     // Find the user and exclude the password for security
@@ -231,18 +249,104 @@ const getProfile = async (req, res) => {
       return res.status(404).json({ error: "User not found." });
     }
 
-    res.status(200).json({ user });
+    const userObj = user.toObject();
+
+    // Auto-calculate Date of Retirement if DOB exists but retirement date is missing
+    const dobValue = user.dob || user.dateOfBirth;
+    if (dobValue && (!userObj.retirementDate && !userObj.dateOfRetirement)) {
+      const calculatedRetDate = computeRetirementDate(dobValue, user.retirementAge || 58);
+      if (calculatedRetDate) {
+        userObj.retirementDate = calculatedRetDate;
+        userObj.dateOfRetirement = calculatedRetDate;
+      }
+    }
+
+    // Compute Dynamic Months to Retirement
+    const retDateValue = userObj.retirementDate || userObj.dateOfRetirement || (dobValue ? computeRetirementDate(dobValue, user.retirementAge || 58) : null);
+    if (retDateValue) {
+      const retDate = new Date(retDateValue);
+      const now = new Date();
+      const diffMonths = (retDate.getFullYear() - now.getFullYear()) * 12 + (retDate.getMonth() - now.getMonth());
+      userObj.monthsToRetirement = Math.max(0, diffMonths);
+    } else {
+      userObj.monthsToRetirement = 36; // fallback
+    }
+
+    res.status(200).json({ user: userObj });
   } catch (error) {
     console.error("Get Profile Error:", error);
     res.status(500).json({ error: "Failed to fetch profile data." });
   }
 };
+
 // --- 6. PROFILE UPDATE LOGIC ---
 const updateProfile = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const isAdmin = req.user.role === 'admin' || req.user.role === 'executive';
     const updateData = { ...req.body };
+
+    // ── 1. BANK ACCOUNT NUMBER VALIDATION (9 to 18 digits) ──
+    const accNo = updateData.accountNumber || updateData.bankAccountNumber;
+    if (accNo && String(accNo).trim()) {
+      const cleanAcc = String(accNo).trim();
+      if (!/^\d{9,18}$/.test(cleanAcc)) {
+        return res.status(400).json({
+          error: "Invalid Bank Account Number. It must contain only digits and be between 9 and 18 digits long."
+        });
+      }
+      updateData.accountNumber = cleanAcc;
+      updateData.bankAccountNumber = cleanAcc;
+    }
+
+    // ── 2. IFSC CODE VALIDATION (11 alphanumeric, e.g. SBIN0000718) ──
+    const ifsc = updateData.ifscCode;
+    if (ifsc && String(ifsc).trim()) {
+      const cleanIfsc = String(ifsc).trim().toUpperCase();
+      if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(cleanIfsc)) {
+        return res.status(400).json({
+          error: "Invalid IFSC Code. Standard format is 4 letters, '0', followed by 6 alphanumeric characters (e.g. SBIN0000718)."
+        });
+      }
+      updateData.ifscCode = cleanIfsc;
+    }
+
+    // ── 3. UPI ID VALIDATION (e.g. name@upi, 9876543210@paytm) ──
+    const upi = updateData.upiId;
+    if (upi && String(upi).trim()) {
+      const cleanUpi = String(upi).trim();
+      if (!/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(cleanUpi)) {
+        return res.status(400).json({
+          error: "Invalid UPI ID. Format should be username@bankhandle (e.g. 9876543210@paytm, name@sbi, user@upi)."
+        });
+      }
+      updateData.upiId = cleanUpi;
+    }
+
+    // ── 4. AUTOMATIC RETIREMENT DATE CALCULATION ON DOB / AGE CHANGE ──
+    const incomingDob = updateData.dob || updateData.dateOfBirth;
+    const incomingRetAge = updateData.retirementAge ? (Number(updateData.retirementAge) === 60 ? 60 : 58) : null;
+
+    if (incomingDob) {
+      const retAgeToUse = incomingRetAge || 58;
+      const calculatedRetDate = computeRetirementDate(incomingDob, retAgeToUse);
+      if (calculatedRetDate) {
+        updateData.retirementDate = calculatedRetDate;
+        updateData.dateOfRetirement = calculatedRetDate;
+        updateData.dob = new Date(incomingDob);
+        updateData.dateOfBirth = new Date(incomingDob);
+      }
+    } else if (incomingRetAge) {
+      // If retirement age was changed but DOB was not sent in this payload, fetch user's existing DOB
+      const currentUser = await User.findById(userId);
+      if (currentUser && (currentUser.dob || currentUser.dateOfBirth)) {
+        const calculatedRetDate = computeRetirementDate(currentUser.dob || currentUser.dateOfBirth, incomingRetAge);
+        if (calculatedRetDate) {
+          updateData.retirementDate = calculatedRetDate;
+          updateData.dateOfRetirement = calculatedRetDate;
+        }
+      }
+    }
 
     // SECURITY: Strip masked Aadhaar values — never overwrite real data with display mask
     if (updateData.aadhaarNo && updateData.aadhaarNo.includes('****')) {
@@ -252,7 +356,7 @@ const updateProfile = async (req, res) => {
       delete updateData.aadharNumber;
     }
 
-    // SECURITY: Non-admins cannot modify locked fields
+    // SECURITY: Non-admins cannot modify locked administrative fields
     if (!isAdmin) {
       delete updateData.vendorNo;
       delete updateData.role;
@@ -263,8 +367,6 @@ const updateProfile = async (req, res) => {
       delete updateData.subDivision;
       delete updateData.joiningDate;
       delete updateData.dateOfJoining;
-      delete updateData.retirementDate;
-      delete updateData.dateOfRetirement;
       delete updateData.membershipId;
       delete updateData.admissionDate;
       delete updateData.sharesCount;
@@ -288,7 +390,7 @@ const updateProfile = async (req, res) => {
     });
   } catch (error) {
     console.error("Update Profile Error:", error);
-    res.status(500).json({ error: "Failed to update profile." });
+    res.status(500).json({ error: error.message || "Failed to update profile." });
   }
 };
 
