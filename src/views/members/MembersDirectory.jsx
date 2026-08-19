@@ -88,12 +88,22 @@ const MembersDirectory = () => {
   }, [])
 
   // --- AUTOMATIC RETIREMENT CALCULATOR (Frontend) ---
-  const calculateRetirementDate = (dobString) => {
+  const calculateRetirementDate = (dobString, retirementAge = 58) => {
     if (!dobString) return '';
     const dob = new Date(dobString);
-    // JS automatically resolves day '0' to the last day of the previous month.
-    // So month + 1 with day 0 = exact last day of the birth month!
-    const retirementDate = new Date(dob.getFullYear() + 58, dob.getMonth() + 1, 0);
+    if (isNaN(dob.getTime())) return '';
+
+    const birthDay = dob.getDate();
+    const birthMonth = dob.getMonth();
+    const birthYear = dob.getFullYear();
+    const age = Number(retirementAge) === 60 ? 60 : 58;
+    const retYear = birthYear + age;
+
+    // Special Rule: If born on the 1st of a month, employee retires on the last day of the previous month
+    // Otherwise, employee retires on the last day of the birth month
+    const retirementDate = birthDay === 1
+      ? new Date(retYear, birthMonth, 0)
+      : new Date(retYear, birthMonth + 1, 0);
 
     // Format back to YYYY-MM-DD for the HTML input element
     const yyyy = retirementDate.getFullYear();
@@ -104,14 +114,26 @@ const MembersDirectory = () => {
 
   const handleAddDobChange = (e) => {
     const dob = e.target.value;
-    const dor = calculateRetirementDate(dob);
+    const dor = calculateRetirementDate(dob, addFormData.retirementAge || 58);
     setAddFormData({ ...addFormData, dateOfBirth: dob, dateOfRetirement: dor });
+  };
+
+  const handleAddRetirementAgeChange = (e) => {
+    const age = Number(e.target.value);
+    const dor = calculateRetirementDate(addFormData.dateOfBirth, age);
+    setAddFormData({ ...addFormData, retirementAge: age, dateOfRetirement: dor });
   };
 
   const handleEditDobChange = (e) => {
     const dob = e.target.value;
-    const dor = calculateRetirementDate(dob);
+    const dor = calculateRetirementDate(dob, editFormData?.retirementAge || 58);
     setEditFormData({ ...editFormData, dateOfBirth: dob, dateOfRetirement: dor });
+  };
+
+  const handleEditRetirementAgeChange = (e) => {
+    const age = Number(e.target.value);
+    const dor = calculateRetirementDate(editFormData?.dateOfBirth, age);
+    setEditFormData({ ...editFormData, retirementAge: age, dateOfRetirement: dor });
   };
 
   // Helper to format MongoDB ISO dates to HTML YYYY-MM-DD format
@@ -228,9 +250,25 @@ const MembersDirectory = () => {
 
     doc.save(`${selectedProfile.vendorNo}_Loan_Statement.pdf`)
   }
-
   // Handle Add Member Submission
   const handleAddMember = async () => {
+    // Client-side format checks
+    const rawAcc = (addFormData.accountNumber || '').trim();
+    if (rawAcc && !/^\d{9,18}$/.test(rawAcc)) {
+      alert("Invalid Bank Account Number! Must contain 9 to 18 numeric digits.");
+      return;
+    }
+    const rawIfsc = (addFormData.ifscCode || '').trim().toUpperCase();
+    if (rawIfsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(rawIfsc)) {
+      alert("Invalid IFSC Code format! (e.g. SBIN0000718)");
+      return;
+    }
+    const rawUpi = (addFormData.upiId || '').trim();
+    if (rawUpi && !/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(rawUpi)) {
+      alert("Invalid UPI ID format! (e.g. username@bankhandle)");
+      return;
+    }
+
     setIsSaving(true)
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
@@ -243,7 +281,11 @@ const MembersDirectory = () => {
       })
       if (response.ok) {
         setAddModalVisible(false)
-        setAddFormData({ name: '', vendorNo: '', designation: '', loanAccountNo: '', emailId: '', dateOfBirth: '', dateOfRetirement: '' })
+        setAddFormData({ 
+          name: '', vendorNo: '', designation: '', loanAccountNo: '', emailId: '', 
+          dateOfBirth: '', retirementAge: 58, dateOfRetirement: '', 
+          accountNumber: '', ifscCode: '', upiId: '' 
+        })
         fetchMembers()
         alert("Member added successfully!")
       } else {
@@ -260,6 +302,22 @@ const MembersDirectory = () => {
   // Handle Edit Member Submission
   const handleUpdateMember = async () => {
     if (!editFormData) return
+    const rawAcc = (editFormData.accountNumber || '').trim();
+    if (rawAcc && !/^\d{9,18}$/.test(rawAcc)) {
+      alert("Invalid Bank Account Number! Must contain 9 to 18 numeric digits.");
+      return;
+    }
+    const rawIfsc = (editFormData.ifscCode || '').trim().toUpperCase();
+    if (rawIfsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(rawIfsc)) {
+      alert("Invalid IFSC Code format! (e.g. SBIN0000718)");
+      return;
+    }
+    const rawUpi = (editFormData.upiId || '').trim();
+    if (rawUpi && !/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(rawUpi)) {
+      alert("Invalid UPI ID format! (e.g. username@bankhandle)");
+      return;
+    }
+
     setIsSaving(true)
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/users/${editFormData._id}`, {
@@ -298,110 +356,86 @@ const MembersDirectory = () => {
       <CRow>
         <CCol xs={12}>
           <CCard className="mb-4 shadow-sm">
-            <CCardHeader className="d-flex flex-column flex-md-row justify-content-between align-items-center py-3">
+            <CCardHeader className="d-flex justify-content-between align-items-center flex-wrap gap-2">
               <div>
-                <strong>Members Directory</strong> <small className="text-medium-emphasis">Master List</small>
+                <strong className="fs-5">Members Directory</strong>
+                <div className="small text-medium-emphasis">View, search, and manage registered society members</div>
               </div>
-              <div className="d-flex align-items-center gap-2 mt-3 mt-md-0">
-                <div style={{ width: '250px' }}>
-                  <CInputGroup>
-                    <CInputGroupText>
-                      <CIcon icon={cilSearch} />
-                    </CInputGroupText>
-                    <CFormInput 
-                      placeholder="Search Name, Vendor No, Loan A/C..." 
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                  </CInputGroup>
-                </div>
-                <CButton color="primary" className="text-white d-flex align-items-center gap-1" onClick={() => setAddModalVisible(true)}>
-                  <CIcon icon={cilUserPlus} /> Add Member
+              <div className="d-flex gap-2">
+                <CButton color="primary" onClick={() => setAddModalVisible(true)}>
+                  <CIcon icon={cilUserPlus} className="me-2" /> Add Member
                 </CButton>
               </div>
             </CCardHeader>
             <CCardBody>
+              {/* Search Bar */}
+              <div className="mb-3">
+                <CInputGroup>
+                  <CInputGroupText><CIcon icon={cilSearch} /></CInputGroupText>
+                  <CFormInput 
+                    placeholder="Search by Name, Vendor Number, or Loan Account Number..." 
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </CInputGroup>
+              </div>
+
+              {/* Table */}
               {loading ? (
-                <div className="text-center py-5">
-                  <CSpinner color="primary" />
-                </div>
+                <div className="text-center py-5"><CSpinner color="primary" /></div>
               ) : (
-                <CTable hover responsive align="middle">
+                <CTable align="middle" className="mb-0 border" hover responsive>
                   <CTableHead color="light">
                     <CTableRow>
-                      <CTableHeaderCell>Vendor No.</CTableHeaderCell>
-                      <CTableHeaderCell>Name</CTableHeaderCell>
+                      <CTableHeaderCell>Member Info</CTableHeaderCell>
+                      <CTableHeaderCell>Vendor No</CTableHeaderCell>
                       <CTableHeaderCell>Designation</CTableHeaderCell>
-                      <CTableHeaderCell>Loan A/C No.</CTableHeaderCell>
-                      <CTableHeaderCell>Pending Loan</CTableHeaderCell>
-                      <CTableHeaderCell>Share Money</CTableHeaderCell>
-                      <CTableHeaderCell className="text-end">Actions</CTableHeaderCell>
+                      <CTableHeaderCell>Date of Birth</CTableHeaderCell>
+                      <CTableHeaderCell>Retirement Date</CTableHeaderCell>
+                      <CTableHeaderCell>Role</CTableHeaderCell>
+                      <CTableHeaderCell className="text-center">Actions</CTableHeaderCell>
                     </CTableRow>
                   </CTableHead>
                   <CTableBody>
-                    {filteredMembers.map((member, index) => (
-                      <CTableRow key={index}>
+                    {filteredMembers.map((member) => (
+                      <CTableRow key={member._id}>
                         <CTableDataCell>
-                          <span 
-                            className="fw-bold text-primary" 
-                            style={{ cursor: 'pointer' }} 
-                            title="Click for 360° Profile"
-                            onClick={() => { setSelectedProfile(member); setActiveTab(1); setProfileModalVisible(true); }}
-                          >
-                            {member.vendorNo}
-                          </span>
-                        </CTableDataCell>
-                        <CTableDataCell>
-                          <div 
-                            className="fw-semibold text-primary" 
-                            style={{ cursor: 'pointer' }} 
-                            title="Click for 360° Profile"
-                            onClick={() => { setSelectedProfile(member); setActiveTab(1); setProfileModalVisible(true); }}
-                          >
+                          <div className="fw-semibold text-primary" style={{ cursor: 'pointer' }} onClick={() => handleRowClick(member)}>
                             {member.name}
                           </div>
-                          <div className="small text-medium-emphasis">{member.emailId}</div>
+                          <div className="small text-medium-emphasis">{member.emailId || 'No email registered'}</div>
                         </CTableDataCell>
                         <CTableDataCell>
-                          {member.designation ? (
-                            <CBadge color="info">{member.designation}</CBadge>
-                          ) : (
-                            <span className="text-muted small">Not set</span>
-                          )}
+                          <CBadge color="secondary">{member.vendorNo}</CBadge>
+                        </CTableDataCell>
+                        <CTableDataCell>{member.designation || 'N/A'}</CTableDataCell>
+                        <CTableDataCell>
+                          {member.dob || member.dateOfBirth
+                            ? new Date(member.dob || member.dateOfBirth).toLocaleDateString('en-IN')
+                            : 'N/A'}
                         </CTableDataCell>
                         <CTableDataCell>
-                          <strong>{member.loanAccountNo || 'N/A'}</strong>
+                          {member.retirementDate || member.dateOfRetirement ? (
+                            <span className="badge bg-light text-primary border">
+                              {new Date(member.retirementDate || member.dateOfRetirement).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </span>
+                          ) : 'N/A'}
                         </CTableDataCell>
-                        <CTableDataCell className="text-danger fw-semibold">₹{(member.pendingLoanBalance || 0).toLocaleString('en-IN')}</CTableDataCell>
-                        <CTableDataCell className="text-success fw-semibold">₹{(member.currentShareMoneyTotal || 0).toLocaleString('en-IN')}</CTableDataCell>
-                        <CTableDataCell className="text-end">
-                          <div className="d-flex justify-content-end gap-2 align-items-center">
-                            {/* Edit */}
-                            <CButton color="primary" size="sm" variant="ghost" title="Edit" onClick={() => { setEditFormData(member); setEditModalVisible(true); }}>
-                              <CIcon icon={cilPencil} />
-                            </CButton>
-
-                            {/* Reset Password */}
-                            <CButton 
-                              color="warning" 
-                              variant="outline" 
-                              size="sm" 
-                              onClick={() => handlePasswordReset(member._id, member.name)}
-                            >
-                              Reset Password
-                            </CButton>
-
-                            {/* Delete */}
-                            <CButton 
-                              color="danger" 
-                              variant="ghost" 
-                              size="sm"
-                              onClick={() => handleDelete(member.vendorNo)}
-                              title="Delete"
-                            >
-                              <CIcon icon={cilTrash} />
-                            </CButton>
-                          </div>
+                        <CTableDataCell>
+                          <CBadge color={member.role === 'admin' ? 'danger' : (member.role === 'executive' ? 'warning' : 'info')}>
+                            {member.role || 'member'}
+                          </CBadge>
+                        </CTableDataCell>
+                        <CTableDataCell className="text-center">
+                          <CButton color="info" variant="ghost" size="sm" onClick={() => handleRowClick(member)} title="View 360 Profile">
+                            <CIcon icon={cilSearch} />
+                          </CButton>
+                          <CButton color="warning" variant="ghost" size="sm" onClick={() => handleEditClick(member)} title="Edit Member">
+                            <CIcon icon={cilPencil} />
+                          </CButton>
+                          <CButton color="danger" variant="ghost" size="sm" onClick={() => handleDelete(member.vendorNo)} title="Delete Member">
+                            <CIcon icon={cilTrash} />
+                          </CButton>
                         </CTableDataCell>
                       </CTableRow>
                     ))}
@@ -421,16 +455,22 @@ const MembersDirectory = () => {
       </CRow>
 
       {/* --- ADD MEMBER MODAL --- */}
-      <CModal visible={addModalVisible} onClose={() => setAddModalVisible(false)} alignment="center">
+      <CModal size="lg" visible={addModalVisible} onClose={() => setAddModalVisible(false)} alignment="center">
         <CModalHeader><CModalTitle>Add New Member</CModalTitle></CModalHeader>
         <CModalBody>
            <CForm>
-             <CFormInput className="mb-3" label="Full Name" value={addFormData.name} onChange={(e) => setAddFormData({...addFormData, name: e.target.value})} />
-             <CFormInput className="mb-3" label="Vendor No" value={addFormData.vendorNo} onChange={(e) => setAddFormData({...addFormData, vendorNo: e.target.value})} />
-             
-             {/* NEW: Date of Birth & Auto-Calculating Date of Retirement */}
              <CRow>
-                <CCol sm={6}>
+               <CCol sm={6}>
+                 <CFormInput className="mb-3" label="Full Name" value={addFormData.name} onChange={(e) => setAddFormData({...addFormData, name: e.target.value})} />
+               </CCol>
+               <CCol sm={6}>
+                 <CFormInput className="mb-3" label="Vendor No" value={addFormData.vendorNo} onChange={(e) => setAddFormData({...addFormData, vendorNo: e.target.value})} />
+               </CCol>
+             </CRow>
+             
+             {/* Date of Birth, Service Period & Auto-Calculating Date of Retirement */}
+             <CRow>
+                <CCol sm={4}>
                   <CFormInput 
                     type="date" 
                     className="mb-3" 
@@ -439,19 +479,76 @@ const MembersDirectory = () => {
                     onChange={handleAddDobChange} 
                   />
                 </CCol>
-                <CCol sm={6}>
+                <CCol sm={4}>
+                  <div className="mb-3">
+                    <label className="form-label">Service Period (Age)</label>
+                    <select 
+                      className="form-select" 
+                      value={addFormData.retirementAge || 58} 
+                      onChange={handleAddRetirementAgeChange}
+                    >
+                      <option value={58}>58 Years (Standard)</option>
+                      <option value={60}>60 Years (Extended)</option>
+                    </select>
+                  </div>
+                </CCol>
+                <CCol sm={4}>
+                  <CFormLabel>Date of Retirement</CFormLabel>
                   <CFormInput 
                     type="date" 
-                    className="mb-3" 
-                    label="Date of Retirement" 
+                    className="mb-3 bg-light" 
                     value={addFormData.dateOfRetirement || ''} 
                     onChange={(e) => setAddFormData({...addFormData, dateOfRetirement: e.target.value})} 
                   />
                 </CCol>
              </CRow>
+             {addFormData.dateOfRetirement && (
+               <div className="p-2 mb-3 rounded bg-light border text-primary small">
+                 📅 <strong>Auto-Calculated Retirement: </strong>
+                 {new Date(addFormData.dateOfRetirement).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })} (Last day of birth month)
+               </div>
+             )}
 
-             <CFormInput className="mb-3" label="Designation" value={addFormData.designation} onChange={(e) => setAddFormData({...addFormData, designation: e.target.value})} />
-             <CFormInput className="mb-3" label="Loan A/C No" value={addFormData.loanAccountNo} onChange={(e) => setAddFormData({...addFormData, loanAccountNo: e.target.value})} />
+             <CRow>
+               <CCol sm={6}>
+                 <CFormInput className="mb-3" label="Designation" value={addFormData.designation} onChange={(e) => setAddFormData({...addFormData, designation: e.target.value})} />
+               </CCol>
+               <CCol sm={6}>
+                 <CFormInput className="mb-3" label="Loan A/C No" value={addFormData.loanAccountNo} onChange={(e) => setAddFormData({...addFormData, loanAccountNo: e.target.value})} />
+               </CCol>
+             </CRow>
+
+             <CRow>
+               <CCol sm={4}>
+                 <CFormInput 
+                   className="mb-3" 
+                   label="Bank Account No" 
+                   placeholder="9-18 digits"
+                   value={addFormData.accountNumber || ''} 
+                   onChange={(e) => setAddFormData({...addFormData, accountNumber: e.target.value.replace(/\D/g, '').slice(0, 18)})} 
+                 />
+               </CCol>
+               <CCol sm={4}>
+                 <CFormInput 
+                   className="mb-3 text-uppercase" 
+                   label="IFSC Code" 
+                   placeholder="e.g. SBIN0000718"
+                   maxLength={11}
+                   value={addFormData.ifscCode || ''} 
+                   onChange={(e) => setAddFormData({...addFormData, ifscCode: e.target.value.toUpperCase()})} 
+                 />
+               </CCol>
+               <CCol sm={4}>
+                 <CFormInput 
+                   className="mb-3" 
+                   label="UPI ID" 
+                   placeholder="name@upi"
+                   value={addFormData.upiId || ''} 
+                   onChange={(e) => setAddFormData({...addFormData, upiId: e.target.value.trim().toLowerCase()})} 
+                 />
+               </CCol>
+             </CRow>
+
              <CFormInput className="mb-3" label="Email ID" type="email" value={addFormData.emailId} onChange={(e) => setAddFormData({...addFormData, emailId: e.target.value})} />
            </CForm>
         </CModalBody>
@@ -462,7 +559,7 @@ const MembersDirectory = () => {
       </CModal>
 
       {/* --- EDIT MEMBER MODAL --- */}
-      <CModal visible={editModalVisible} onClose={() => setEditModalVisible(false)} alignment="center">
+      <CModal size="lg" visible={editModalVisible} onClose={() => setEditModalVisible(false)} alignment="center">
         <CModalHeader><CModalTitle>Edit Member Details</CModalTitle></CModalHeader>
         <CModalBody>
            {editFormData && (
@@ -477,25 +574,44 @@ const MembersDirectory = () => {
                </CRow>
                
                <CRow>
-                  <CCol sm={6}>
+                  <CCol sm={4}>
                     <CFormInput 
                       type="date" 
                       className="mb-3" 
                       label="Date of Birth" 
-                      value={formatDateForInput(editFormData.dateOfBirth)} 
+                      value={formatDateForInput(editFormData.dob || editFormData.dateOfBirth)} 
                       onChange={handleEditDobChange} 
                     />
                   </CCol>
-                  <CCol sm={6}>
+                  <CCol sm={4}>
+                    <div className="mb-3">
+                      <label className="form-label">Service Period (Age)</label>
+                      <select 
+                        className="form-select" 
+                        value={editFormData.retirementAge || 58} 
+                        onChange={handleEditRetirementAgeChange}
+                      >
+                        <option value={58}>58 Years (Standard)</option>
+                        <option value={60}>60 Years (Extended)</option>
+                      </select>
+                    </div>
+                  </CCol>
+                  <CCol sm={4}>
+                    <CFormLabel>Date of Retirement</CFormLabel>
                     <CFormInput 
                       type="date" 
-                      className="mb-3" 
-                      label="Date of Retirement" 
-                      value={formatDateForInput(editFormData.dateOfRetirement)} 
-                      onChange={(e) => setEditFormData({...editFormData, dateOfRetirement: e.target.value})} 
+                      className="mb-3 bg-light" 
+                      value={formatDateForInput(editFormData.retirementDate || editFormData.dateOfRetirement)} 
+                      onChange={(e) => setEditFormData({...editFormData, dateOfRetirement: e.target.value, retirementDate: e.target.value})} 
                     />
                   </CCol>
                </CRow>
+               {(editFormData.retirementDate || editFormData.dateOfRetirement) && (
+                 <div className="p-2 mb-3 rounded bg-light border text-primary small">
+                   📅 <strong>Auto-Calculated Retirement: </strong>
+                   {new Date(editFormData.retirementDate || editFormData.dateOfRetirement).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })} (Last day of birth month)
+                 </div>
+               )}
 
                <CRow>
                  <CCol sm={6}>
@@ -514,6 +630,37 @@ const MembersDirectory = () => {
                        <option value="admin">Administrator</option>
                      </select>
                    </div>
+                 </CCol>
+               </CRow>
+
+               <CRow>
+                 <CCol sm={4}>
+                   <CFormInput 
+                     className="mb-3" 
+                     label="Bank Account No" 
+                     placeholder="9-18 digits"
+                     value={editFormData.accountNumber || editFormData.bankAccountNumber || ''} 
+                     onChange={(e) => setEditFormData({...editFormData, accountNumber: e.target.value.replace(/\D/g, '').slice(0, 18)})} 
+                   />
+                 </CCol>
+                 <CCol sm={4}>
+                   <CFormInput 
+                     className="mb-3 text-uppercase" 
+                     label="IFSC Code" 
+                     placeholder="e.g. SBIN0000718"
+                     maxLength={11}
+                     value={editFormData.ifscCode || ''} 
+                     onChange={(e) => setEditFormData({...editFormData, ifscCode: e.target.value.toUpperCase()})} 
+                   />
+                 </CCol>
+                 <CCol sm={4}>
+                   <CFormInput 
+                     className="mb-3" 
+                     label="UPI ID" 
+                     placeholder="name@upi"
+                     value={editFormData.upiId || ''} 
+                     onChange={(e) => setEditFormData({...editFormData, upiId: e.target.value.trim().toLowerCase()})} 
+                   />
                  </CCol>
                </CRow>
 
