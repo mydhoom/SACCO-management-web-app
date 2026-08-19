@@ -7,7 +7,7 @@
     "start": "node server.js",
     "watch": "nodemon ./server.js",
     "db:reset": "node scripts/resetDatabase.js",
-    "build": "echo 'Backend build complete'"
+    "build": "echo 'Backend ready' && exit 0"
   },
   "author": "Fortune",
   "license": "ISC",
@@ -40,5 +40,8 @@
     "pug": "^2.0.4",
     "uuid": "^14.0.1",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "vite": "^5.4.14"
   }
 }
