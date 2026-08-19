@@ -24,7 +24,9 @@ exports.uploadHistoricalLoans = async (req, res) => {
       totalProcessed: 0,
       successCount: 0,
       errorCount: 0,
-      errors: []
+      warningCount: 0,
+      errors: [],
+      warnings: []
     };
 
     for (const [index, row] of data.entries()) {
@@ -32,23 +34,62 @@ exports.uploadHistoricalLoans = async (req, res) => {
       const rowNumber = index + 2; // +1 for 0-index, +1 for header
 
       try {
-        // Support multiple column header variations (vendorNo, Vendor_No, Vendor No, EmpNo, etc.)
+        // 1. Support multiple column header variations (vendorNo, Vendor_No, Vendor No, EmpNo, etc.)
         const rawVendorNo = row.vendorNo || row.Vendor_No || row['Vendor No'] || row['vendor_no'] || row['VendorNo'] || row['EMP_NO'] || row['EmpNo'] || row['Emp_No'];
         const vendorNo = rawVendorNo ? String(rawVendorNo).trim() : null;
 
-        const rawLoanAmount = row.loanAmount || row.Loan_Amount || row['Loan Amount'] || row['loan_amount'] || row['Amount'] || row['Principal'];
+        const rawLoanAmount = row.loanAmount || row.Loan_Amount || row['Loan Amount'] || row['loan_amount'] || row['Amount'] || row['Principal'] || row['Sanctioned Amount'];
         const loanAmount = Number(String(rawLoanAmount || 0).replace(/₹|,|\s/g, ''));
 
-        const rawInterestRate = row.interestRate || row.Interest_Rate || row['Interest Rate'] || row['interest_rate'] || row['Interest'];
-        const interestRate = Number(rawInterestRate) || 10;
+        const rawInterestRate = row.interestRate || row.Interest_Rate || row['Interest Rate'] || row['interest_rate'] || row['Interest'] || row['ROI'];
+        let interestRate = Number(rawInterestRate);
+        if (isNaN(interestRate) || interestRate <= 0) {
+          interestRate = 10; // Default standard interest rate
+        }
 
-        const rawTenure = row.tenure || row.Tenure || row['Tenure (Months)'] || row['Months'];
-        const tenure = Number(rawTenure) || 12;
+        const rawTenure = row.tenure || row.Tenure || row['Tenure (Months)'] || row['Months'] || row['Tenure'];
+        let tenure = Number(rawTenure);
+        if (isNaN(tenure) || tenure <= 0) {
+          tenure = 12; // Default 12 months tenure if missing
+          if (vendorNo && loanAmount) {
+            results.warnings.push(`Row ${rowNumber} [Vendor ${vendorNo}]: Tenure was missing. System defaulted tenure to 12 months.`);
+            results.warningCount++;
+          }
+        }
 
-        const rawOutstanding = row.currentOutstanding || row.Current_Outstanding || row['Current Outstanding'] || row['Pending_Principal'] || row['Pending Principal'] || row['Outstanding'];
-        const currentOutstanding = Number(String(rawOutstanding || 0).replace(/₹|,|\s/g, ''));
+        const rawOutstanding = row.currentOutstanding || row.Current_Outstanding || row['Current Outstanding'] || row['Pending_Principal'] || row['Pending Principal'] || row['Outstanding'] || row['Balance Principal'];
+        let currentOutstanding = Number(String(rawOutstanding !== undefined && rawOutstanding !== null ? rawOutstanding : '').replace(/₹|,|\s/g, ''));
+        
+        if (rawOutstanding === undefined || rawOutstanding === null || String(rawOutstanding).trim() === '') {
+          currentOutstanding = loanAmount; // Default to full loan amount if missing
+          if (vendorNo && loanAmount) {
+            results.warnings.push(`Row ${rowNumber} [Vendor ${vendorNo}]: Outstanding Principal was missing. System assumed full loan amount (₹${loanAmount.toLocaleString('en-IN')}).`);
+            results.warningCount++;
+          }
+        }
 
-        const rawDate = row.issueDate || row.Issue_Date || row['Issue Date'] || row['Date'];
+        // --- EMI AMOUNT READ & SMART AUTO-CALCULATION ---
+        const rawEmi = row.emiAmount || row.EMI_Amount || row['EMI Amount'] || row['EMI'] || row['monthlyEmi'] || row['Monthly EMI'];
+        let emiAmount = Number(String(rawEmi || 0).replace(/₹|,|\s/g, ''));
+
+        if (!emiAmount || isNaN(emiAmount) || emiAmount <= 0) {
+          // Auto-calculate EMI using standard loan reduction formula
+          const monthlyRate = (interestRate / 100) / 12;
+          if (monthlyRate > 0 && loanAmount > 0 && tenure > 0) {
+            emiAmount = Math.round((loanAmount * monthlyRate * Math.pow(1 + monthlyRate, tenure)) / (Math.pow(1 + monthlyRate, tenure) - 1));
+          } else if (loanAmount > 0 && tenure > 0) {
+            emiAmount = Math.round(loanAmount / tenure);
+          } else {
+            emiAmount = 0;
+          }
+
+          if (vendorNo && loanAmount) {
+            results.warnings.push(`Row ${rowNumber} [Vendor ${vendorNo}]: EMI Amount was missing in Excel. System auto-calculated EMI of ₹${emiAmount.toLocaleString('en-IN')} (based on ₹${loanAmount.toLocaleString('en-IN')} @ ${interestRate}% p.a. for ${tenure} mos).`);
+            results.warningCount++;
+          }
+        }
+
+        const rawDate = row.issueDate || row.Issue_Date || row['Issue Date'] || row['Date'] || row['Sanction Date'];
         let issueDate = new Date();
         if (rawDate) {
           const parsed = new Date(rawDate);
@@ -57,15 +98,17 @@ exports.uploadHistoricalLoans = async (req, res) => {
           }
         }
 
-        if (!vendorNo || !loanAmount) {
-          throw new Error(`Missing Vendor No or Loan Amount (Vendor No: ${vendorNo || 'Empty'}, Loan Amount: ${loanAmount || 0}).`);
+        // --- VALIDATION ERROR CHECKS FOR MISSING MANDATORY DATA ---
+        if (!vendorNo) {
+          throw new Error(`Missing mandatory parameter: Vendor No / Employee ID is required.`);
+        }
+        if (!loanAmount || isNaN(loanAmount) || loanAmount <= 0) {
+          throw new Error(`Missing mandatory parameter: Valid Loan Amount is required for Vendor No: ${vendorNo}.`);
         }
 
         // --- FLEXIBLE USER LOOKUP ---
-        // 1. Exact match
         let user = await User.findOne({ vendorNo });
 
-        // 2. Number-only / prefix-stripped match (e.g. EMP-1045 matches 1045)
         if (!user) {
           const digitsOnly = vendorNo.replace(/\D/g, '');
           if (digitsOnly) {
@@ -78,7 +121,7 @@ exports.uploadHistoricalLoans = async (req, res) => {
           }
         }
 
-        // 3. Auto-create member if not found so historical loan upload never blocks!
+        // Auto-create member if not found
         if (!user) {
           user = new User({
             vendorNo: vendorNo,
@@ -88,10 +131,11 @@ exports.uploadHistoricalLoans = async (req, res) => {
             role: 'member'
           });
           await user.save();
+          results.warnings.push(`Row ${rowNumber} [Vendor ${vendorNo}]: Member profile was not found in directory. System auto-created profile for "${user.name}".`);
+          results.warningCount++;
         }
 
         // --- DUPLICATE PREVENTION CHECK ---
-        // Check if an identical historical loan already exists for this member with the same loanAmount and issueDate
         const duplicateLoan = await Loan.findOne({
           memberId: user._id,
           loanAmount: loanAmount,
@@ -99,10 +143,10 @@ exports.uploadHistoricalLoans = async (req, res) => {
         });
 
         if (duplicateLoan) {
-          throw new Error(`Duplicate entry ignored: Loan of ₹${loanAmount} for ${vendorNo} on ${issueDate.toISOString().split('T')[0]} already exists.`);
+          throw new Error(`Duplicate entry ignored: Loan of ₹${loanAmount.toLocaleString('en-IN')} for Vendor ${vendorNo} on ${issueDate.toISOString().split('T')[0]} already exists.`);
         }
 
-        // 1. Create the historical Loan record
+        // 1. Create Historical Loan record
         const existingLoansCount = await Loan.countDocuments({ memberId: user._id });
         const loanId = `${user.vendorNo}-${existingLoansCount + 1}-HIST`;
 
@@ -113,6 +157,7 @@ exports.uploadHistoricalLoans = async (req, res) => {
           loanId,
           memberId: user._id,
           loanAmount: loanAmount,
+          principalPending: currentOutstanding,
           interestRate: interestRate,
           tenure: tenure,
           sharePaymentMethod: 'DEDUCT_FROM_LOAN',
@@ -123,13 +168,12 @@ exports.uploadHistoricalLoans = async (req, res) => {
         });
         await newLoan.save();
 
-        // 2. Create historical ledger entries for disbursement (LOAN_PRINCIPAL_FOLIO: 152)
+        // 2. Create historical ledger entries
         const batchId = `HIST-${uuidv4()}`;
         const exactMemberName = user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Unknown Member';
 
         const transactionsToLog = [];
 
-        // Log the initial disbursement (Debit to 152)
         transactionsToLog.push({
           vendorNo: user.vendorNo, 
           memberName: exactMemberName, 
@@ -144,12 +188,10 @@ exports.uploadHistoricalLoans = async (req, res) => {
           relatedLoanId: newLoan._id, 
           batchId: batchId,
           transactionDate: issueDate,
-          description: "Historical Loan Disbursement (FY 23-24)"
+          description: "Historical Loan Disbursement"
         });
 
-        // If there are payments made, log them as a single historical repayment to arrive at currentOutstanding
         const totalPrincipalPaid = loanAmount - currentOutstanding;
-        
         if (totalPrincipalPaid > 0) {
           transactionsToLog.push({
             vendorNo: user.vendorNo, 
@@ -164,7 +206,7 @@ exports.uploadHistoricalLoans = async (req, res) => {
             status: "COMPLETED", 
             relatedLoanId: newLoan._id, 
             batchId: batchId,
-            transactionDate: new Date(), // Using current date for the aggregate history sync
+            transactionDate: new Date(),
             description: "Aggregate Historical Principal Repayment"
           });
         }
@@ -173,9 +215,10 @@ exports.uploadHistoricalLoans = async (req, res) => {
           await TransactionLog.insertMany(transactionsToLog);
         }
 
-        // 3. Update User balances
+        // 3. Update User member balances
         user.activeLoanAmount = (user.activeLoanAmount || 0) + (currentOutstanding > 0 ? loanAmount : 0);
         user.pendingLoanBalance = (user.pendingLoanBalance || 0) + currentOutstanding;
+        user.monthlyEmiAmount = (user.monthlyEmiAmount || 0) + (currentOutstanding > 0 ? emiAmount : 0);
         await user.save();
 
         results.successCount++;
