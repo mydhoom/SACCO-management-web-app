@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "watch": "nodemon ./server.js",
-    "db:reset": "node scripts/resetDatabase.js"
+    "db:reset": "node scripts/resetDatabase.js",
+    "build": "echo 'Backend build complete'"
   },
   "author": "Fortune",
   "license": "ISC",
